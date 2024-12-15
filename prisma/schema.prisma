@@ -28,22 +28,39 @@ model Task {
   userId      String
   category    Category @relation(fields: [categoryId], references: [id])
   categoryId  String
-  position    Int      // For drag and drop ordering within category
+  position    Float    @default(0.0)
+  interactions TaskInteraction[]
 }
 
 model Category {
   id        String   @id @default(cuid())
   name      String
-  position  Int      // For drag and drop ordering of categories
+  position  Float    @default(0.0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id])
   userId    String
   tasks     Task[]
+  isDefault Boolean  @default(false)
 }
 
 enum TaskStatus {
   TODO
   IN_PROGRESS
   COMPLETED
+}
+
+model TaskInteraction {
+  id        String          @id @default(cuid())
+  task      Task           @relation(fields: [taskId], references: [id])
+  taskId    String
+  type      InteractionType
+  content   String         @db.Text
+  createdAt DateTime       @default(now())
+}
+
+enum InteractionType {
+  LLM_SUGGESTION
+  LLM_ANALYSIS
+  USER_FEEDBACK
 }
