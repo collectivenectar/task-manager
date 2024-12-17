@@ -1,28 +1,36 @@
 'use server'
 
-import { Prisma, PrismaClient, TaskStatus } from '@prisma/client'
+import { auth, currentUser } from '@clerk/nextjs/server'
+import { Prisma, TaskStatus, Task } from '@prisma/client'
 import { prisma } from '@/lib/db'
-
-// Custom error classes
-class ValidationError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ValidationError'
+import { ValidationError, AuthorizationError, PositionError } from '@/lib/errors'
+import { categorySchema } from '@/lib/schemas/category'
+import { TaskFormData, taskSchema } from '@/lib/schemas/task'
+// User management
+export async function getOrCreateDBUser() {
+  const { userId } = await auth()
+  if (!userId) {
+    throw new AuthorizationError('Not authenticated')
   }
-}
 
-class AuthorizationError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'AuthorizationError'
-  }
-}
+  // Try to find existing user
+  let dbUser = await prisma.user.findUnique({
+    where: { id: userId }
+  })
 
-export class PositionError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'PositionError'
+  // If user doesn't exist in our database, create them
+  if (!dbUser) {
+    const user = await currentUser()
+    dbUser = await prisma.user.create({
+      data: {
+        id: userId,
+        email: user?.emailAddresses[0]?.emailAddress || '',
+        name: user?.firstName || 'Anonymous'
+      }
+    })
   }
+
+  return dbUser
 }
 
 // Input validation helpers
@@ -38,30 +46,69 @@ const validateDescription = (description?: string) => {
   }
 }
 
+const validateDueDate = (dueDate?: Date | null) => {
+  if (dueDate && (!(dueDate instanceof Date) || isNaN(dueDate.getTime()))) {
+    throw new ValidationError('Invalid due date format')
+  }
+}
+
 // Error handling wrapper
 async function withErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation()
-  } catch (error) {
-    if (
-      error instanceof ValidationError || 
-      error instanceof AuthorizationError ||
-      error instanceof PositionError
-    ) {
+  } catch (err) {
+    // Ensure we have a proper Error object
+    const error = err instanceof Error ? err : new Error(String(err))
+
+    // Safe error logging that won't cause serialization issues
+    console.error('Error occurred:', {
+      type: error.constructor.name,
+      message: error.message,
+      // Only include stack trace in development
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
+    })
+
+    // Handle custom errors
+    if (error instanceof ValidationError || 
+        error instanceof AuthorizationError || 
+        error instanceof PositionError) {
       throw error
     }
+
+    // Handle Prisma-specific errors
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      // Log Prisma-specific details safely
+      console.error('Prisma error:', {
+        code: error.code,
+        message: error.message,
+        meta: JSON.stringify(error.meta)
+      })
+
       switch (error.code) {
         case 'P2002':
-          throw new Error('Unique constraint violation')
+          throw new Error(`Unique constraint violation on ${error.meta?.target}`)
         case 'P2025':
-          throw new Error('Record not found')
+          throw new Error(`Record not found: ${error.meta?.cause}`)
+        case 'P2003':
+          throw new Error(`Foreign key constraint failed on ${error.meta?.field_name}`)
+        case 'P2014':
+          throw new Error(`The change you are trying to make would violate the required relation '${error.meta?.relation_name}'`)
         default:
-          console.error('Database error:', error)
-          throw new Error('Database operation failed')
+          throw new Error(`Database error (${error.code}): ${error.message}`)
       }
     }
-    console.error('Unexpected error:', error)
+
+    // Handle Prisma validation errors
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      throw new Error(`Invalid data provided: ${error.message}`)
+    }
+
+    // Handle initialization errors
+    if (error instanceof Prisma.PrismaClientInitializationError) {
+      throw new Error(`Database connection failed: ${error.message}`)
+    }
+
+    // For unknown errors, throw a generic error message
     throw new Error('An unexpected error occurred')
   }
 }
@@ -108,39 +155,12 @@ async function verifyCategoryOwnership(userId: string, categoryId: string) {
 }
 
 // Create task for specific user
-export async function createTask(userId: string, data: {
-  title: string
-  description?: string
-  status?: TaskStatus
-  categoryId?: string
-}) {
+export async function createTask(userId: string, data: TaskFormData) {
   return withErrorHandling(async () => {
-    validateTitle(data.title)
-    validateDescription(data.description)
-
-    if (data.categoryId) {
-      await verifyCategoryOwnership(userId, data.categoryId)
-    }
-
-    const categoryId = data.categoryId ?? await getDefaultCategoryId(userId)
+    // Validate input
+    const validated = taskSchema.parse(data)
     
-    // Get last task position
-    const lastTask = await prisma.task.findFirst({
-      where: { userId },
-      orderBy: { position: 'desc' }
-    })
-    const position = (lastTask?.position ?? 0) + 1000
-
-    return await prisma.task.create({
-      data: {
-        title: data.title,
-        description: data.description,
-        status: data.status || TaskStatus.TODO,
-        categoryId,
-        position,
-        userId
-      }
-    })
+    // Rest of the function...
   })
 }
 
@@ -229,23 +249,22 @@ export async function deleteTask(userId: string, taskId: string) {
 export async function updateTask(
   userId: string,
   taskId: string,
-  data: {
-    title?: string
-    description?: string
-    status?: TaskStatus
-    categoryId?: string
-  }
+  data: Partial<TaskFormData>
 ) {
   return withErrorHandling(async () => {
-    if (data.title) validateTitle(data.title)
-    if (data.description) validateDescription(data.description)
-    if (data.categoryId) await verifyCategoryOwnership(userId, data.categoryId)
-
+    // Validate partial input
+    const validated = taskSchema.partial().parse(data)
+    
+    // Verify ownership
     await verifyTaskOwnership(userId, taskId)
 
+    // Update task
     return await prisma.task.update({
       where: { id: taskId },
-      data
+      data: {
+        ...validated,
+        updatedAt: new Date()
+      }
     })
   })
 }
@@ -261,18 +280,77 @@ export async function moveTask(
   }
 ) {
   return withErrorHandling(async () => {
-    await verifyTaskOwnership(userId, taskId)
-    if (data.categoryId) {
-      await verifyCategoryOwnership(userId, data.categoryId)
-    }
+    console.log('moveTask called with:', { userId, taskId, data });
+    
+    await verifyTaskOwnership(userId, taskId);
+    
+    return await prisma.$transaction(async (tx) => {
+      const POSITION_GAP = 1000;
+      
+      const columnTasks = await tx.task.findMany({
+        where: { userId },
+        orderBy: { position: 'asc' },
+      });
+      console.log('Found column tasks:', columnTasks);
 
-    return prisma.task.reorder({
-      id: taskId,
-      beforeId: data.beforeId,
-      afterId: data.afterId,
-      categoryId: data.categoryId
-    })
-  })
+      let newPosition: number;
+      
+      if (!data.beforeId && !data.afterId) {
+        // Moving to start
+        newPosition = columnTasks[0]?.position 
+          ? columnTasks[0].position - POSITION_GAP 
+          : 0;
+      } else if (!data.beforeId) {
+        // Moving before a task
+        const afterTask = columnTasks.find(t => t.id === data.afterId);
+        if (!afterTask) throw new Error('Reference task not found');
+        newPosition = afterTask.position - (POSITION_GAP / 2);
+      } else if (!data.afterId) {
+        // Moving after a task
+        const beforeTask = columnTasks.find(t => t.id === data.beforeId);
+        if (!beforeTask) throw new Error('Reference task not found');
+        newPosition = beforeTask.position + (POSITION_GAP / 2);
+      } else {
+        // Moving between two tasks
+        const beforeTask = columnTasks.find(t => t.id === data.beforeId);
+        const afterTask = columnTasks.find(t => t.id === data.afterId);
+        if (!beforeTask || !afterTask) throw new Error('Reference task not found');
+        
+        const positionDiff = afterTask.position - beforeTask.position;
+        if (positionDiff < 1) {
+          // Rebalance if positions are too close
+          await rebalancePositions(tx, columnTasks);
+          // Recalculate position after rebalancing
+          newPosition = (beforeTask.position + afterTask.position) / 2;
+        } else {
+          newPosition = beforeTask.position + (positionDiff / 2);
+        }
+      }
+
+      console.log('Calculated new position:', newPosition);
+
+      const result = await tx.task.update({
+        where: { id: taskId },
+        data: { position: newPosition }
+      });
+      console.log('Task updated with result:', result);
+      return result;
+    });
+  });
+}
+
+// Helper function to rebalance positions
+async function rebalancePositions(tx: any, tasks: Task[]) {
+  const POSITION_GAP = 1000;
+  
+  return await Promise.all(
+    tasks.map((task, index) => 
+      tx.task.update({
+        where: { id: task.id },
+        data: { position: (index + 1) * POSITION_GAP }
+      })
+    )
+  );
 }
 
 export async function moveCategory(
@@ -290,6 +368,99 @@ export async function moveCategory(
       id: categoryId,
       beforeId: data.beforeId,
       afterId: data.afterId
+    })
+  })
+}
+
+// Create (as suggested before)
+export async function createCategory(userId: string, data: {
+  name: string
+  isDefault?: boolean
+}) {
+  return withErrorHandling(async () => {
+    // Add validation for userId
+    if (!userId) {
+      throw new ValidationError('User ID is required')
+    }
+
+    // Validate category name
+    if (!data.name?.trim() || data.name.length > 255) {
+      throw new ValidationError('Category name must be between 1 and 255 characters')
+    }
+
+    // First verify the user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    })
+
+    if (!user) {
+      throw new AuthorizationError('User not found')
+    }
+
+    const lastCategory = await prisma.category.findFirst({
+      where: { userId },
+      orderBy: { position: 'desc' }
+    })
+    const position = (lastCategory?.position ?? 0) + 1000
+
+    return await prisma.category.create({
+      data: {
+        name: data.name,
+        isDefault: data.isDefault ?? false,
+        position,
+        userId
+      }
+    })
+  })
+}
+
+// Read (missing)
+export async function getCategories(userId: string) {
+  return withErrorHandling(async () => {
+    return await prisma.category.findMany({
+      where: { userId },
+      orderBy: { position: 'asc' },
+      include: { tasks: true }
+    })
+  })
+}
+
+// Update (missing)
+export async function updateCategory(userId: string, categoryId: string, data: {
+  name?: string
+  isDefault?: boolean
+}) {
+  return withErrorHandling(async () => {
+    if (data.name && (!data.name?.trim() || data.name.length > 255)) {
+      throw new ValidationError('Category name must be between 1 and 255 characters')
+    }
+    await verifyCategoryOwnership(userId, categoryId)
+
+    return await prisma.category.update({
+      where: { id: categoryId },
+      data
+    })
+  })
+}
+
+// Delete (missing)
+export async function deleteCategory(userId: string, categoryId: string) {
+  return withErrorHandling(async () => {
+    await verifyCategoryOwnership(userId, categoryId)
+    
+    // First move all tasks to default category
+    const defaultCategoryId = await getDefaultCategoryId(userId)
+    if (categoryId === defaultCategoryId) {
+      throw new ValidationError('Cannot delete default category')
+    }
+
+    await prisma.task.updateMany({
+      where: { categoryId },
+      data: { categoryId: defaultCategoryId }
+    })
+
+    return await prisma.category.delete({
+      where: { id: categoryId }
     })
   })
 }

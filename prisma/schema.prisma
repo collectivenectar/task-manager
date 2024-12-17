@@ -24,6 +24,7 @@ model Task {
   status      TaskStatus
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  dueDate     DateTime?
   user        User     @relation(fields: [userId], references: [id])
   userId      String
   category    Category @relation(fields: [categoryId], references: [id])

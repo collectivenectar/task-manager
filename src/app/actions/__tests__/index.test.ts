@@ -4,8 +4,8 @@ import {
   updateTask,
   moveTask,
   moveCategory,
-  PositionError
 } from '../index';
+import { PositionError } from '@/lib/errors';
 
 import { prisma } from '../../../lib/db';
 import { TaskStatus, Prisma } from '@prisma/client';
@@ -97,6 +97,21 @@ describe('Task Actions', () => {
           userId: mockUserId,
           position: expect.any(Number)
         }
+      });
+    });
+
+    it('should create task with due date', async () => {
+      const dueDate = new Date('2024-12-31');
+      await createTask(mockUserId, { 
+        title: 'Task with due date',
+        dueDate 
+      });
+
+      expect(mockPrisma.task.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          dueDate,
+          userId: mockUserId
+        })
       });
     });
   });
@@ -286,6 +301,36 @@ describe('Task Actions', () => {
         afterId: 'task2',
         categoryId: undefined
       });
+    });
+  });
+
+  describe('due date handling', () => {
+    it('should update task due date', async () => {
+      const dueDate = new Date('2024-12-31');
+      await updateTask(mockUserId, mockTaskId, { dueDate });
+
+      expect(mockPrisma.task.update).toHaveBeenCalledWith({
+        where: { id: mockTaskId },
+        data: expect.objectContaining({ dueDate })
+      });
+    });
+
+    it('should clear task due date', async () => {
+      await updateTask(mockUserId, mockTaskId, { dueDate: null });
+
+      expect(mockPrisma.task.update).toHaveBeenCalledWith({
+        where: { id: mockTaskId },
+        data: expect.objectContaining({ dueDate: null })
+      });
+    });
+
+    it('should reject invalid due date', async () => {
+      await expect(
+        createTask(mockUserId, { 
+          title: 'Task', 
+          dueDate: 'invalid-date' as any 
+        })
+      ).rejects.toThrow('Invalid due date format');
     });
   });
 });

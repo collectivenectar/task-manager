@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client'
-import { PositionError } from '@/app/actions'
+import { PositionError } from './errors'
 
 const POSITION_SPACING = 1000 // Made magic number into a named constant
 
