@@ -5,6 +5,14 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --toastify-color-light: #1A1A1A;  /* surface color */
+  --toastify-color-dark: #0A0A0A;   /* background color */
+  --toastify-color-info: #60A5FA;   /* blue-400 */
+  --toastify-color-success: #34D399; /* emerald-400 */
+  --toastify-color-warning: #FBBF24; /* amber-400 */
+  --toastify-color-error: #F87171;   /* red-400 */
+  --toastify-text-color-light: #FFFFFF;
+  --toastify-text-color-dark: #FFFFFF;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,4 +26,34 @@ body {
   color: var(--foreground);
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Custom toast styling */
+.Toastify__toast {
+  background: var(--toastify-color-dark) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+}
+
+.Toastify__toast-body {
+  color: var(--toastify-text-color-dark);
+  font-size: 0.875rem;
+}
+
+.Toastify__progress-bar {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.Toastify__close-button {
+  color: rgba(255, 255, 255, 0.5);
+  opacity: 0.8;
+}
+
+.Toastify__close-button:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Add some top margin to avoid navbar overlap */
+.Toastify__toast-container--top-right {
+  top: 4.5rem !important;  /* Gives space below navbar */
 }
