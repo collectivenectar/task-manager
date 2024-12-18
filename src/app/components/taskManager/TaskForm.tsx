@@ -3,6 +3,12 @@ import { Category, Task, TaskStatus } from '@prisma/client'
 import { createCategory } from '@/app/actions'
 import { taskSchema } from '@/lib/schemas/task'
 import { z } from 'zod'
+import DeleteConfirmationModal from '@/app/components/common/DeleteConfirmationModal'
+import DeleteCategoryModal from '../common/DeleteCategoryModal'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getTasksByCategory, deleteCategory } from '@/app/actions'
+import { TrashIcon } from '@heroicons/react/24/outline'
+import { alerts } from '@/lib/utils/alerts'
 
 interface TaskFormProps {
   onSubmit: (data: {
@@ -13,6 +19,7 @@ interface TaskFormProps {
     categoryId: string
   }) => void
   onCancel: () => void
+  onDelete?: (taskId: string) => void
   onCategoryCreate: (data: { name: string }) => Promise<Category>
   initialData?: Task
   categories: Category[]
@@ -21,7 +28,10 @@ interface TaskFormProps {
 
 type FormErrors = { [key: string]: string }
 
-const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onCategoryCreate, initialData, categories, userId }) => {
+const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCategoryCreate, initialData, categories, userId }) => {
+  // Get queryClient instance
+  const queryClient = useQueryClient()
+
   // Find default category
   const defaultCategory = categories.find(c => c.isDefault)
   if (!defaultCategory) {
@@ -39,6 +49,26 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onCategoryCreat
   const [errors, setErrors] = useState<FormErrors>({})
   const [isAddingCategory, setIsAddingCategory] = useState(false)
   const [newCategoryName, setNewCategoryName] = useState('')
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null)
+
+  const { data: affectedTasks = [] } = useQuery({
+    queryKey: ['tasks', 'category', categoryToDelete?.id],
+    queryFn: () => categoryToDelete 
+      ? getTasksByCategory(userId, categoryToDelete.id)
+        .catch(error => {
+          // If the category is not found, return empty array
+          if (error.message.includes('not found')) {
+            return []
+          }
+          throw error
+        })
+      : Promise.resolve([]),
+    enabled: !!categoryToDelete,
+    retry: false,
+    staleTime: 0,
+    gcTime: 0
+  })
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -63,23 +93,24 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onCategoryCreat
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     try {
       const validated = taskSchema.parse(formData)
-      onSubmit(validated)
-      // Reset form if not editing, but keep the default category
+      await onSubmit(validated)
+      // Only reset after successful submission
       if (!initialData) {
         setFormData({
           title: '',
           description: '',
           status: 'TODO',
           dueDate: null,
-          categoryId: defaultCategory.id  // Keep the default category
+          categoryId: defaultCategory.id
         })
       }
     } catch (error) {
+      console.error('Form validation error:', error)
       if (error instanceof z.ZodError) {
         const newErrors: FormErrors = {}
         error.errors.forEach(err => {
@@ -104,187 +135,278 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onCategoryCreat
     }
   }
 
+  const handleCategoryDelete = async (targetCategoryId: string) => {
+    try {
+      if (!categoryToDelete) return
+      
+      alerts.info('Deleting category...')
+      
+      await deleteCategory(userId, categoryToDelete.id, targetCategoryId)
+      
+      // First, remove the category from the cache to prevent unnecessary refetches
+      queryClient.setQueryData(['tasks', 'category', categoryToDelete.id], [])
+      
+      // Then invalidate queries in sequence
+      await queryClient.invalidateQueries({ 
+        queryKey: ['categories'],
+        exact: true 
+      })
+      await queryClient.invalidateQueries({ 
+        queryKey: ['tasks'],
+        exact: true
+      })
+      
+      // Close modal and show success message
+      setCategoryToDelete(null)
+      alerts.success('Category deleted successfully')
+    } catch (error) {
+      console.error('Failed to delete category:', error)
+      alerts.error(error instanceof Error ? error.message : 'Failed to delete category')
+    }
+  }
+
   // Rest of the JSX remains the same, but add error display:
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-          Task Title
-        </label>
-        <input
-          type="text"
-          id="title"
-          name="title"
-          value={formData.title}
-          onChange={handleChange}
-          className={`mt-1 block w-full rounded-md shadow-sm 
-            ${errors.title ? 'border-red-500' : 'border-gray-300'}
-            focus:border-indigo-500 focus:ring-indigo-500
-            text-gray-900 bg-white`}
-        />
-        {errors.title && (
-          <p className="mt-1 text-sm text-red-500">{errors.title}</p>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-          Description
-        </label>
-        <textarea
-          id="description"
-          name="description"
-          value={formData.description}
-          onChange={handleChange}
-          className={`mt-1 block w-full rounded-md shadow-sm 
-            ${errors.description ? 'border-red-500' : 'border-gray-300'}
-            focus:border-indigo-500 focus:ring-indigo-500
-            text-gray-900 bg-white`}
-          placeholder="Enter task description"
-          rows={3}
-        />
-        {errors.description && (
-          <p className="mt-1 text-sm text-red-500">{errors.description}</p>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="status" className="block text-sm font-medium text-gray-700">
-          Status
-        </label>
-        <select
-          id="status"
-          name="status"
-          value={formData.status}
-          onChange={handleChange}
-          className={`mt-1 block w-full rounded-md shadow-sm 
-            ${errors.status ? 'border-red-500' : 'border-gray-300'}
-            focus:border-indigo-500 focus:ring-indigo-500
-            text-gray-900 bg-white`}
-        >
-          <option value="TODO">To Do</option>
-          <option value="IN_PROGRESS">In Progress</option>
-          <option value="COMPLETED">Completed</option>
-        </select>
-        {errors.status && (
-          <p className="mt-1 text-sm text-red-500">{errors.status}</p>
-        )}
-      </div>
-
-      <div>
-        <label htmlFor="dueDate" className="block text-sm font-medium text-gray-700">
-          Due Date
-        </label>
-        <input
-          type="datetime-local"
-          id="dueDate"
-          name="dueDate"
-          value={formData.dueDate?.toLocaleString('sv').slice(0, 16) || ''}
-          onChange={handleChange}
-          className={`mt-1 block w-full rounded-md shadow-sm 
-            ${errors.dueDate ? 'border-red-500' : 'border-gray-300'}
-            focus:border-indigo-500 focus:ring-indigo-500
-            text-gray-900 bg-white`}
-        />
-        {errors.dueDate && (
-          <p className="mt-1 text-sm text-red-500">{errors.dueDate}</p>
-        )}
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700">
-          Category
-        </label>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {categories.map(category => (
-            <button
-              key={category.id}
-              type="button"
-              onClick={() => setFormData(prev => ({ ...prev, categoryId: category.id }))}
-              className={`
-                px-3 py-1 rounded-full text-sm
-                ${formData.categoryId === category.id
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }
-                transition-colors duration-200
-              `}
-            >
-              {category.name}
-              {category.isDefault && ' (Default)'}
-            </button>
-          ))}
-          
-          <button
-            type="button"
-            onClick={() => setIsAddingCategory(true)}
+    <>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div>
+          <label htmlFor="title" className="block text-sm font-medium text-primary-muted mb-2">
+            Task Title
+          </label>
+          <input
+            type="text"
+            id="title"
+            name="title"
+            value={formData.title}
+            onChange={handleChange}
             className={`
-              px-3 py-1 rounded-full text-sm
-              bg-gray-100 text-gray-700 hover:bg-gray-200
-              transition-colors duration-200
-              ${isAddingCategory ? 'hidden' : ''}
+              w-full rounded-lg bg-surface border
+              ${errors.title ? 'border-red-500' : 'border-white/10'}
+              px-3 py-3 sm:py-2 text-base sm:text-sm text-primary
+              placeholder:text-primary-muted
+              focus:outline-none focus:ring-2 focus:ring-white/20
+              transition-all duration-200
+            `}
+          />
+          {errors.title && (
+            <p className="mt-1 text-sm text-red-500">{errors.title}</p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="description" className="block text-sm font-medium text-primary-muted mb-2">
+            Description
+          </label>
+          <textarea
+            id="description"
+            name="description"
+            value={formData.description}
+            onChange={handleChange}
+            rows={3}
+            className={`
+              w-full rounded-lg bg-surface border
+              ${errors.description ? 'border-red-500' : 'border-white/10'}
+              px-3 py-2 text-sm text-primary
+              placeholder:text-primary-muted
+              focus:outline-none focus:ring-2 focus:ring-white/20
+              transition-all duration-200
+            `}
+          />
+          {errors.description && (
+            <p className="mt-1 text-sm text-red-500">{errors.description}</p>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="status" className="block text-sm font-medium text-primary-muted mb-2">
+            Status
+          </label>
+          <select
+            id="status"
+            name="status"
+            value={formData.status}
+            onChange={handleChange}
+            className={`
+              w-full rounded-lg bg-surface border border-white/10
+              px-3 py-2 text-sm text-primary
+              focus:outline-none focus:ring-2 focus:ring-white/20
+              transition-all duration-200
             `}
           >
-            + Add Category
-          </button>
-          
-          {isAddingCategory && (
-            <div className="w-full mt-2">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newCategoryName}
-                  onChange={(e) => setNewCategoryName(e.target.value)}
-                  placeholder="New category name"
-                  className="px-3 py-1 rounded-full text-sm border border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                  autoFocus
-                />
+            <option value="TODO">To Do</option>
+            <option value="IN_PROGRESS">In Progress</option>
+            <option value="COMPLETED">Completed</option>
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="dueDate" className="block text-sm font-medium text-primary-muted mb-2">
+            Due Date
+          </label>
+          <div className="relative">
+            <input
+              type="datetime-local"
+              id="dueDate"
+              name="dueDate"
+              value={formData.dueDate?.toLocaleString('sv').slice(0, 16) || ''}
+              onChange={handleChange}
+              className={`
+                w-full h-11 rounded-lg bg-surface border border-white/10
+                px-3 text-sm text-primary
+                focus:outline-none focus:ring-2 focus:ring-white/20
+                transition-all duration-200
+                [color-scheme:dark]
+              `}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-primary-muted">
+            Category
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {categories.map(category => (
+              <div key={category.id} className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleAddCategory}
-                  className="px-3 py-1 rounded-full text-sm bg-indigo-600 text-white hover:bg-indigo-700"
+                  onClick={() => setFormData(prev => ({ ...prev, categoryId: category.id }))}
+                  className={`
+                    px-4 py-1.5 text-sm rounded-lg flex-1
+                    ${formData.categoryId === category.id
+                      ? 'bg-white/90 text-black'
+                      : 'bg-surface border border-white/10 text-primary-muted hover:text-primary hover:border-white/20'
+                    }
+                    transition-all duration-200
+                  `}
                 >
-                  Add
+                  {category.name}
+                  {category.isDefault && ' (Default)'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddingCategory(false);
-                    setNewCategoryName('');
-                  }}
-                  className="px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-700 hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
+                
+                {!category.isDefault && (
+                  <button
+                    type="button"
+                    onClick={() => setCategoryToDelete(category)}
+                    className="p-1.5 text-red-400 hover:text-red-300
+                             hover:bg-red-500/10 rounded-lg transition-all"
+                  >
+                    <TrashIcon className="h-4 w-4" />
+                  </button>
+                )}
               </div>
+            ))}
+            
+            <button
+              type="button"
+              onClick={() => setIsAddingCategory(true)}
+              className={`
+                px-3 py-1.5 rounded-lg text-sm
+                bg-surface border border-white/10 
+                text-primary-muted hover:text-primary hover:border-white/20
+                transition-all duration-200
+                ${isAddingCategory ? 'hidden' : ''}
+              `}
+            >
+              + Add Category
+            </button>
+          </div>
+
+          {isAddingCategory && (
+            <div className="mt-3 flex gap-2">
+              <input
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="New category name"
+                className="flex-1 px-3 py-1.5 rounded-lg text-sm
+                         bg-surface border border-white/10 text-primary
+                         placeholder:text-primary-muted
+                         focus:outline-none focus:ring-2 focus:ring-accent/50"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={handleAddCategory}
+                className="px-3 py-1.5 rounded-lg text-sm
+                         bg-accent text-primary hover:bg-accent-hover
+                         transition-colors"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingCategory(false)
+                  setNewCategoryName('')
+                }}
+                className="px-3 py-1.5 rounded-lg text-sm
+                         bg-surface border border-white/10
+                         text-primary-muted hover:text-primary hover:border-white/20
+                         transition-all"
+              >
+                Cancel
+              </button>
             </div>
           )}
         </div>
-        {errors.categoryId && (
-          <p className="mt-1 text-sm text-red-500">{errors.categoryId}</p>
-        )}
-      </div>
 
-      <div className="mt-6 flex gap-3">
-        <button
-          type="submit"
-          className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md 
-                   hover:bg-indigo-700 focus:outline-none focus:ring-2 
-                   focus:ring-indigo-500 focus:ring-offset-2"
-        >
-          {initialData ? 'Update Task' : 'Add Task'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-md 
-                   hover:bg-gray-200 focus:outline-none focus:ring-2 
-                   focus:ring-gray-500 focus:ring-offset-2"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+        <div className="space-y-4 pt-4">
+          {initialData && (
+            <button
+              type="button"
+              onClick={() => setIsDeleteModalOpen(true)}
+              className="w-full px-4 py-2 rounded-lg text-red-400 hover:text-red-300
+                       hover:bg-red-500/10 transition-all border border-red-500/20"
+            >
+              Delete Task
+            </button>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              className="flex-1 bg-white/90 text-black px-4 py-2 rounded-lg
+                       hover:bg-white/75 transition-colors"
+            >
+              {initialData ? 'Update' : 'Add Task'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 bg-surface border border-white/10 text-primary-muted 
+                       px-4 py-2 rounded-lg hover:text-primary hover:border-white/20
+                       transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <DeleteConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={() => {
+          if (initialData && onDelete) {
+            onDelete(initialData.id)
+          }
+          setIsDeleteModalOpen(false)
+        }}
+        title="Delete Task"
+        message="Are you sure you want to delete this task? This action cannot be undone."
+      />
+
+      {categoryToDelete && (
+        <DeleteCategoryModal
+          isOpen={!!categoryToDelete}
+          onClose={() => setCategoryToDelete(null)}
+          category={categoryToDelete}
+          categories={categories}
+          affectedTasks={affectedTasks}
+          onConfirm={handleCategoryDelete}
+        />
+      )}
+    </>
   )
 }
 
