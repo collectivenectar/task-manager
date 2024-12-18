@@ -47,19 +47,22 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
 
       <div className="flex min-h-full items-center justify-center p-4">
         <div 
-          className="relative w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all"
+          className="relative w-full max-w-md transform overflow-hidden 
+                     rounded-xl bg-surface border border-white/10 p-6 shadow-xl 
+                     transition-all"
           onClick={(e) => e.stopPropagation()}
           onTouchEnd={(e) => e.stopPropagation()}
         >
           <button
             onClick={onClose}
-            className="absolute right-4 top-4 text-gray-400 hover:text-gray-500 p-2"
+            className="absolute right-4 top-4 p-2 text-primary-muted 
+                     hover:text-primary rounded-lg transition-colors"
             aria-label="Close modal"
           >
-            <XMarkIcon className="h-6 w-6" />
+            <XMarkIcon className="h-5 w-5" />
           </button>
 
-          <h2 className="text-xl font-semibold mb-4">{title}</h2>
+          <h2 className="text-lg font-medium text-primary mb-6">{title}</h2>
           
           {children}
         </div>
