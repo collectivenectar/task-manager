@@ -1,10 +1,23 @@
 import { ReactNode } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render } from '@testing-library/react'
+import { render, RenderResult } from '@testing-library/react'
 import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
-export function renderWithProviders(ui: ReactNode) {
+interface RenderWithProvidersOptions {
+  queryClientConfig?: {
+    defaultOptions?: {
+      queries?: {
+        enabled?: boolean
+      }
+    }
+  }
+}
+
+export function renderWithProviders(
+  ui: ReactNode,
+  options: RenderWithProvidersOptions = {}
+): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {

@@ -1,6 +1,6 @@
 const TaskBoardSkeleton = () => {
   return (
-    <div className="flex flex-col h-full mx-auto px-2 py-8">
+    <div className="flex flex-col h-full mx-auto px-2 py-8" data-testid="loading-skeleton">
       {/* Search and filter area */}
       <div className="p-4 space-y-4 md:mx-auto md:w-[768px] lg:w-[896px]">
         {/* Search bar skeleton */}

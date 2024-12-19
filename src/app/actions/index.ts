@@ -731,43 +731,59 @@ async function getNextPosition(userId: string): Promise<number> {
  */
 export async function deleteCategory(
   userId: string, 
-  categoryId: string, 
-  mode: DeleteMode,
+  categoryId: string,
+  deleteMode: DeleteMode,
   targetCategoryId?: string
 ) {
   try {
-    // Verify ownership and check if default
-    const category = await verifyCategoryOwnership(userId, categoryId)
+    // Verify ownership and get category
+    const category = await prisma.category.findFirst({
+      where: { id: categoryId, userId }
+    })
+    if (!category) {
+      throw new AuthorizationError('Category not found or access denied')
+    }
     if (category.isDefault) {
       throw new ValidationError('Cannot delete default category')
     }
 
-    if (mode === 'move' && !targetCategoryId) {
-      throw new ValidationError('Target category is required when moving tasks')
+    // Get tasks in this category
+    const tasks = await prisma.task.findMany({
+      where: { categoryId, userId }
+    })
+
+    if (tasks.length > 0) {
+      if (deleteMode === 'move') {
+        // If moving tasks, we need a target category
+        if (!targetCategoryId) {
+          throw new ValidationError('Must specify target category when moving tasks')
+        }
+
+        // Verify target category exists and belongs to user
+        const targetCategory = await prisma.category.findFirst({
+          where: { id: targetCategoryId, userId }
+        })
+        if (!targetCategory) {
+          throw new ValidationError('Target category not found')
+        }
+
+        // Move tasks to target category
+        await prisma.task.updateMany({
+          where: { categoryId, userId },
+          data: { categoryId: targetCategoryId }
+        })
+      } else if (deleteMode === 'delete_all') {
+        // Delete all tasks in the category
+        await prisma.task.deleteMany({
+          where: { categoryId, userId }
+        })
+      }
     }
 
-    if (mode === 'delete_all') {
-      // Delete all tasks and the category
-      await prisma.task.deleteMany({
-        where: { categoryId, userId }
-      })
-      await prisma.category.delete({
-        where: { id: categoryId }
-      })
-    } else {
-      // Verify target category ownership
-      if (targetCategoryId) {
-        await verifyCategoryOwnership(userId, targetCategoryId)
-      }
-      // Move tasks to target category then delete original
-      await prisma.task.updateMany({
-        where: { categoryId, userId },
-        data: { categoryId: targetCategoryId }
-      })
-      await prisma.category.delete({
-        where: { id: categoryId }
-      })
-    }
+    // Delete the category
+    await prisma.category.delete({
+      where: { id: categoryId }
+    })
   } catch (error) {
     console.error('Error deleting category:', error)
     if (error instanceof ValidationError || error instanceof AuthorizationError) {

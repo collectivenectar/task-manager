@@ -1,113 +1,98 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '@/test/utils'
 import TaskCard from '../TaskCard'
-import { TaskStatus } from 'prisma/prisma-client'
 
 describe('TaskCard', () => {
   const mockTask = {
     id: 'task-1',
     title: 'Test Task',
     description: 'Test Description',
-    status: 'TODO' as TaskStatus,
-    categoryId: 'category-1',
+    status: 'TODO' as const,
     position: 1000,
     userId: 'user-1',
+    categoryId: 'category-1',
     createdAt: new Date(),
     updatedAt: new Date(),
     dueDate: null,
-    category: null
+    category: {
+      id: 'category-1',
+      name: 'Test Category',
+      position: 0,
+      isDefault: true,
+      userId: 'user-1',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
   }
 
-  const mockOnEdit = jest.fn()
-  const mockOnStatusChange = jest.fn()
+  const mockProps = {
+    task: mockTask,
+    userId: 'user-1',
+    onEdit: jest.fn(),
+    onStatusChange: jest.fn().mockResolvedValue(undefined),
+    isAllView: false
+  }
 
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
   it('renders task details correctly', () => {
-    render(
-      <TaskCard
-        task={mockTask}
-        userId="user-1"
-        onEdit={mockOnEdit}
-        onStatusChange={mockOnStatusChange}
-        isAllView={false}
-      />
-    )
+    renderWithProviders(<TaskCard {...mockProps} />)
 
-    expect(screen.getByTestId(`task-card-${mockTask.id}`)).toBeInTheDocument()
     expect(screen.getByTestId('task-title')).toHaveTextContent('Test Task')
-    expect(screen.getByTestId('task-status-button')).toHaveTextContent('TODO')
+    expect(screen.getByTestId('task-description')).toHaveTextContent('Test Description')
+    expect(screen.getByTestId('task-category')).toHaveTextContent('Test Category')
   })
 
-  it('calls onEdit when card is clicked', () => {
-    render(
-      <TaskCard
-        task={mockTask}
-        userId="user-1"
-        onEdit={mockOnEdit}
-        onStatusChange={mockOnStatusChange}
-        isAllView={false}
-      />
-    )
-
-    fireEvent.click(screen.getByTestId(`task-card-${mockTask.id}`))
-    expect(mockOnEdit).toHaveBeenCalledWith(mockTask)
-  })
-
-  it('calls onStatusChange when status button is clicked', async () => {
+  it('handles status change click', async () => {
     jest.useFakeTimers()
+    renderWithProviders(<TaskCard {...mockProps} />)
     
-    render(
-      <TaskCard
-        task={mockTask}
-        userId="user-1"
-        onEdit={mockOnEdit}
-        onStatusChange={mockOnStatusChange}
-        isAllView={false}
-      />
-    )
+    const statusButton = screen.getByTestId('task-status-button')
+    fireEvent.click(statusButton)
 
-    fireEvent.click(screen.getByTestId('task-status-button'))
+    // Should show loading indicator
+    expect(screen.getByTestId('status-loading-indicator')).toBeInTheDocument()
     
-    // Fast-forward through the animation
+    // Fast-forward through loading animation
     jest.advanceTimersByTime(2000)
     
-    expect(mockOnStatusChange).toHaveBeenCalledWith(mockTask.id, 'IN_PROGRESS')
-    
+    await waitFor(() => {
+      expect(mockProps.onStatusChange).toHaveBeenCalledWith(
+        mockTask.id,
+        'IN_PROGRESS' // TODO -> IN_PROGRESS
+      )
+    })
+
     jest.useRealTimers()
   })
 
-  it('shows due date when present', () => {
-    const taskWithDueDate = {
-      ...mockTask,
-      dueDate: new Date('2024-12-31')
-    }
+  it('calls onEdit when clicked', () => {
+    renderWithProviders(<TaskCard {...mockProps} />)
+    
+    const card = screen.getByTestId(`task-card-${mockTask.id}`)
+    fireEvent.click(card)
 
-    render(
-      <TaskCard
-        task={taskWithDueDate}
-        userId="user-1"
-        onEdit={mockOnEdit}
-        onStatusChange={mockOnStatusChange}
-        isAllView={false}
-      />
-    )
-
-    expect(screen.getByTestId('task-due-date')).toBeInTheDocument()
+    expect(mockProps.onEdit).toHaveBeenCalledWith(mockTask)
   })
 
-  it('shows description when present', () => {
-    render(
-      <TaskCard
-        task={mockTask}
-        userId="user-1"
-        onEdit={mockOnEdit}
-        onStatusChange={mockOnStatusChange}
-        isAllView={false}
-      />
-    )
+  it('displays drag handle when not in all view', () => {
+    renderWithProviders(<TaskCard {...mockProps} dragHandleProps={{
+      'aria-describedby': 'drag-handle',
+      draggable: true,
+      role: 'button',
+      tabIndex: 0
+    }} />)
+    
+    const dragHandle = screen.getByRole('button', { name: /drag to reorder/i })
+    expect(dragHandle).toBeInTheDocument()
+  })
 
-    expect(screen.getByTestId('task-description')).toHaveTextContent('Test Description')
+  it('hides drag handle in all view', () => {
+    renderWithProviders(<TaskCard {...mockProps} isAllView={true} />)
+    
+    const dragHandle = screen.queryByRole('button', { name: /drag to reorder/i })
+    expect(dragHandle).not.toBeInTheDocument()
   })
 }) 

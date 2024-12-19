@@ -19,6 +19,8 @@ const DeleteCategoryModal = ({
   affectedTasks,
   onConfirm
 }: DeleteCategoryModalProps) => {
+  console.log('DeleteCategoryModal rendered with tasks:', affectedTasks)
+  
   const [targetCategoryId, setTargetCategoryId] = useState<string>('')
   const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +66,7 @@ const DeleteCategoryModal = ({
             <div className="space-y-4">
               <button
                 onClick={() => handleConfirm('delete_all')}
+                data-testid="delete-category-and-tasks-button"
                 className="w-full px-4 py-2 bg-red-500/20 text-red-400 rounded-lg
                          hover:bg-red-500/30 transition-colors text-left"
               >

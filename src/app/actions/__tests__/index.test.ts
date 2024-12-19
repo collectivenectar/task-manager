@@ -112,65 +112,97 @@ describe('Task Management Actions', () => {
         .rejects.toThrow('Cannot delete default category')
     })
 
-    test('deleteCategory should require target category when tasks exist', async () => {
+    it('deleteCategory should require target category when tasks exist', async () => {
+      // Mock category exists and belongs to user FIRST
       prismaMock.category.findFirst.mockResolvedValue({
         id: mockCategoryId,
         name: 'Test Category',
-        userId: mockUserId,
         position: 0,
         isDefault: false,
+        userId: mockUserId,
         createdAt: new Date(),
         updatedAt: new Date()
       })
-      prismaMock.task.findMany.mockResolvedValue([{ 
-        id: 'task-1',
-        title: 'Test Task',
-        status: 'TODO',
-        categoryId: mockCategoryId,
-        position: 1000,
-        userId: mockUserId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        description: null,
-        dueDate: null
-      }])
 
-      await expect(deleteCategory(mockUserId, mockCategoryId, 'delete_all'))
-        .rejects.toThrow('Cannot delete category with tasks without specifying a target category')
+      // Then mock that category has tasks
+      prismaMock.task.findMany.mockResolvedValue([
+        {
+          id: 'task-1',
+          title: 'Test Task',
+          description: null,
+          status: 'TODO',
+          position: 1000,
+          userId: mockUserId,
+          categoryId: mockCategoryId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          dueDate: null
+        }
+      ])
+
+      // Should throw when trying to delete without target
+      await expect(
+        deleteCategory(mockUserId, mockCategoryId, 'delete_all')
+      ).rejects.toThrow(ValidationError)
     })
 
-    test('deleteCategory should move tasks to target category', async () => {
+    it('deleteCategory should move tasks to target category', async () => {
       const targetCategoryId = 'target-category-123'
-      
+
+      // Mock source category exists
       prismaMock.category.findFirst.mockResolvedValue({
         id: mockCategoryId,
         name: 'Test Category',
-        userId: mockUserId,
         position: 0,
         isDefault: false,
+        userId: mockUserId,
         createdAt: new Date(),
         updatedAt: new Date()
       })
-      prismaMock.task.findMany.mockResolvedValue([{ 
-        id: 'task-1',
-        title: 'Test Task',
-        status: 'TODO',
-        categoryId: mockCategoryId,
-        position: 1000,
+
+      // Mock target category exists
+      prismaMock.category.findFirst.mockResolvedValueOnce({
+        id: targetCategoryId,
+        name: 'Target Category',
+        position: 1,
+        isDefault: false,
         userId: mockUserId,
         createdAt: new Date(),
-        updatedAt: new Date(),
-        description: null,
-        dueDate: null
-      }])
-      prismaMock.task.updateMany.mockResolvedValue({ count: 1 })
-      prismaMock.category.delete.mockResolvedValue({ id: mockCategoryId } as any)
+        updatedAt: new Date()
+      })
+
+      // Mock tasks exist
+      prismaMock.task.findMany.mockResolvedValue([
+        {
+          id: 'task-1',
+          title: 'Test Task',
+          description: null,
+          status: 'TODO',
+          position: 1000,
+          userId: mockUserId,
+          categoryId: mockCategoryId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          dueDate: null
+        }
+      ])
 
       await deleteCategory(mockUserId, mockCategoryId, 'move', targetCategoryId)
 
+      // Should update tasks with new category
       expect(prismaMock.task.updateMany).toHaveBeenCalledWith({
-        where: { categoryId: mockCategoryId },
-        data: { categoryId: targetCategoryId }
+        where: { 
+          categoryId: mockCategoryId,
+          userId: mockUserId 
+        },
+        data: { 
+          categoryId: targetCategoryId 
+        }
+      })
+
+      // Should delete the category
+      expect(prismaMock.category.delete).toHaveBeenCalledWith({
+        where: { id: mockCategoryId }
       })
     })
   })

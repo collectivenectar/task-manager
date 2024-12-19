@@ -320,26 +320,21 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
             <div className="flex bg-surface/50 rounded-lg border border-white/10 p-0.5">
               {taskStatuses
                 .filter(status => status.isActionable)
-                .map(({ id, label }, index, array) => (
+                .map((status, index, array) => (
                   <button
-                    key={id}
-                    type="button"
-                    data-testid={`status-tab-${id.toLowerCase()}`}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      setActiveStatus(id as TaskStatus | 'ALL')
-                    }}
+                    key={status.id}
+                    onClick={() => setActiveStatus(status.id)}
+                    role="tab"
+                    aria-selected={activeStatus === status.id}
                     className={`
-                      px-4 py-2 text-sm transition-all duration-200
-                      ${index === 0 ? 'rounded-l-lg' : ''}
-                      ${index === array.length - 1 ? 'rounded-r-lg' : ''}
-                      ${activeStatus === id 
-                        ? 'text-primary bg-white/20' 
-                        : 'text-primary-muted hover:text-primary'
+                      px-4 py-2 rounded-lg text-sm font-medium
+                      ${activeStatus === status.id 
+                        ? 'bg-white/20 text-primary' 
+                        : 'bg-surface/50 text-primary-muted hover:text-primary'
                       }
                     `}
                   >
-                    {label}
+                    {status.label}
                   </button>
                 ))}
             </div>
