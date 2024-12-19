@@ -1,17 +1,21 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getTasks, moveTask, getCategories, updateTask, updateTaskStatus, createCategory, deleteTask } from '@/app/actions'
 import { Task, TaskStatus } from '@prisma/client'
 import { DragDropContext, DropResult } from '@hello-pangea/dnd'
 import { Popover } from '@headlessui/react'
-import { MagnifyingGlassIcon, FunnelIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, FunnelIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { toast } from 'react-toastify'
 
 import TaskColumn from './TaskColumn'
 import Modal from '../common/Modal'
 import TaskForm from './TaskForm'
+import { getTasks } from '@/app/actions'
 import { alerts } from '@/lib/utils/alerts'
+import { ValidationError } from '@/lib/errors'
+import { useTaskMutations } from './hooks/useTaskMutations'
+import { useTaskQueries } from './hooks/useTaskQueries'
+import { useCategoryMutations } from './hooks/useCategoryMutations'
 
 interface TaskBoardProps {
   initialTasks: Task[]
@@ -19,11 +23,30 @@ interface TaskBoardProps {
 }
 
 const taskStatuses = [
-  { id: 'ALL', label: 'all' },
-  { id: 'TODO', label: 'todo' },
-  { id: 'IN_PROGRESS', label: 'in progress' },
-  { id: 'COMPLETED', label: 'completed' }
+  { id: 'ALL', label: 'all', isActionable: false },
+  { id: 'TODO', label: 'todo', isActionable: true },
+  { id: 'IN_PROGRESS', label: 'in progress', isActionable: true },
+  { id: 'COMPLETED', label: 'completed', isActionable: true }
 ] as const
+
+/**
+ * Performance Considerations:
+ * 
+ * 1. Task Positioning
+ *    - Using float positions with 1000-unit gaps allows 2^53 operations
+ *    - Rebalancing triggered when gaps < 1 unit
+ *    - O(n) rebalancing cost amortized over n operations
+ * 
+ * 2. Query Optimization
+ *    - Categories cached client-side
+ *    - Tasks fetched with category data in single query
+ *    - Position updates use optimistic UI updates
+ * 
+ * 3. Future Scaling
+ *    - Consider pagination for large task lists
+ *    - Could implement virtual scrolling if needed
+ *    - Category deletion could be async for large task sets
+ */
 
 const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
   // 1. All useState hooks first
@@ -36,153 +59,37 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
   const filterButtonRef = useRef<HTMLButtonElement>(null)
 
   // 3. Get queryClient
-  const queryClient = useQueryClient()
+  // const queryClient = useQueryClient()
 
   // 4. All queries
-  const { data: categories, isLoading: isCategoriesLoading } = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => getCategories(userId),
-  })
-
-  const { data: tasks } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: () => getTasks(userId),
-    initialData: initialTasks,
-    select: (data) => data.map(task => {
-      const category = categories?.find(c => c.id === task.categoryId)
-      return {
-        ...task,
-        category: category || null
-      }
-    })
+  const {
+    tasks,
+    categories,
+    isLoading,
+    error,
+    hasDefaultCategory
+  } = useTaskQueries({ 
+    userId, 
+    initialTasks 
   })
 
   // 5. All mutations
-  const reorderMutation = useMutation({
-    mutationFn: (params: { taskId: string, beforeId: string, afterId: string }) => 
-      moveTask(userId, params.taskId, { 
-        beforeId: params.beforeId || undefined, 
-        afterId: params.afterId || undefined 
-      }),
-    onMutate: async (newTask) => {
-      await queryClient.cancelQueries({ queryKey: ['tasks'] })
-      const previousTasks = queryClient.getQueryData(['tasks']) as Task[]
-      
-      // Calculate optimistic position
-      const draggedTask = previousTasks.find(t => t.id === newTask.taskId)
-      const beforeTask = previousTasks.find(t => t.id === newTask.beforeId)
-      const afterTask = previousTasks.find(t => t.id === newTask.afterId)
-      
-      if (draggedTask) {
-        const newPosition = beforeTask && afterTask
-          ? (beforeTask.position + afterTask.position) / 2
-          : beforeTask
-          ? beforeTask.position + 1000
-          : afterTask
-          ? afterTask.position - 1000
-          : 0
+  const {
+    reorderMutation,
+    updateTaskMutation,
+    updateTaskStatusMutation,
+    deleteTaskMutation
+  } = useTaskMutations(userId)
 
-        // Update the cache with new positions
-        queryClient.setQueryData(['tasks'], (old: Task[] | undefined) => {
-          if (!old) return old
-          return [...old].map(task => 
-            task.id === draggedTask.id
-              ? { ...task, position: newPosition }
-              : task
-          ).sort((a, b) => a.position - b.position)
-        })
-      }
-
-      return { previousTasks }
-    },
-    onError: (err, newTask, context) => {
-      queryClient.setQueryData(['tasks'], context?.previousTasks)
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    }
-  })
-
-  const updateTaskMutation = useMutation({
-    mutationFn: (params: { 
-      taskId: string, 
-      data: {
-        title?: string
-        description?: string | null
-        status?: TaskStatus
-        dueDate?: Date | null
-        categoryId?: string
-      }
-    }) => updateTask(userId, params.taskId, params.data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    }
-  })
-
-  const updateTaskStatusMutation = useMutation({
-    mutationFn: (params: { taskId: string, status: TaskStatus }) => 
-      updateTaskStatus(userId, params.taskId, params.status),
-    onMutate: async ({ taskId, status }) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['tasks'] })
-      
-      // Snapshot the previous value
-      const previousTasks = queryClient.getQueryData(['tasks'])
-      
-      // Optimistically update to the new value
-      queryClient.setQueryData(['tasks'], (old: Task[] | undefined) => {
-        if (!old) return old
-        return old.map(task => 
-          task.id === taskId ? { ...task, status } : task
-        )
-      })
-
-      return { previousTasks }
-    },
-    onError: (err, variables, context) => {
-      // If the mutation fails, use the context returned from onMutate to roll back
-      queryClient.setQueryData(['tasks'], context?.previousTasks)
-    },
-    onSettled: () => {
-      // Always refetch after error or success
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    }
-  })
-
-  const deleteTaskMutation = useMutation({
-    mutationFn: (taskId: string) => deleteTask(userId, taskId),
-    onMutate: async (taskId) => {
-      await queryClient.cancelQueries({ queryKey: ['tasks'] })
-      const previousTasks = queryClient.getQueryData(['tasks'])
-      
-      // Optimistic update
-      queryClient.setQueryData(['tasks'], (old: Task[] | undefined) => {
-        if (!old) return old
-        return old.filter(task => task.id !== taskId)
-      })
-
-      alerts.info('Deleting task...')  // Show pending state
-      return { previousTasks }
-    },
-    onSuccess: () => {
-      alerts.success('Task deleted successfully')
-    },
-    onError: (err, taskId, context) => {
-      queryClient.setQueryData(['tasks'], context?.previousTasks)
-      alerts.error('Failed to delete task')
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    }
-  })
+  const { createCategoryMutation } = useCategoryMutations(userId)
 
   // 6. Loading state check
-  if (isCategoriesLoading) {
+  if (isLoading) {
     return <div>Loading...</div>
   }
 
   // 7. Error state check
-  if (!categories?.some(c => c.isDefault)) {
+  if (!hasDefaultCategory) {
     return <div>Error: No default category found</div>
   }
 
@@ -206,15 +113,10 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
   const handleDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
 
-    const { draggableId, source, destination } = result;
-    
-    // Get tasks in destination column
+    const { draggableId, destination } = result;
     const columnTasks = tasks?.filter(task => task.status === destination.droppableId) || [];
-    
-    // Remove the dragged task from the array before calculating before/after
     const tasksWithoutDragged = columnTasks.filter(task => task.id !== draggableId);
     
-    // Find tasks before and after drop position
     const beforeTask = destination.index > 0 ? tasksWithoutDragged[destination.index - 1] : null;
     const afterTask = destination.index < tasksWithoutDragged.length ? tasksWithoutDragged[destination.index] : null;
     
@@ -225,22 +127,28 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
         afterId: afterTask?.id || ''
       });
     } catch (error) {
-      console.error('Reorder mutation failed with:', error);
+      console.error('Reorder mutation failed:', error);
     }
   };
 
   // Pass this to TaskColumn
   const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
-    await updateTaskStatusMutation.mutateAsync({ taskId, status: newStatus })
+    try {
+      await updateTaskStatusMutation.mutateAsync({ taskId, status: newStatus })
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        toast.error(error.message)
+      } else {
+        console.error('Failed to update status:', error)
+        toast.error('Failed to update status')
+      }
+    }
   }
 
   // Pass this to TaskForm
   const handleCategoryCreate = async (categoryData: { name: string }) => {
     try {
-      const newCategory = await createCategory(userId, categoryData)
-      // Invalidate categories query to refetch the list
-      queryClient.invalidateQueries({ queryKey: ['categories'] })
-      return newCategory
+      return await createCategoryMutation.mutateAsync(categoryData)
     } catch (error) {
       console.error('Failed to create category:', error)
       throw error
@@ -258,143 +166,192 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
     return matchesStatus && matchesCategory && matchesSearch
   }) ?? []
 
+  const toggleCategory = (categoryId: string) => {
+    const newCategories = new Set(activeCategories)
+    if (newCategories.has(categoryId)) {
+      newCategories.delete(categoryId)
+    } else {
+      newCategories.add(categoryId)
+    }
+    setActiveCategories(newCategories)
+  }
+
   return (
     <>
-      <div className="flex flex-col h-full max-w-7xl mx-auto px-2 py-8">
+      <div className="flex flex-col h-full mx-auto px-2 py-8">
+        <div className="w-full md:mx-auto md:w-[768px] lg:w-[896px]">
+          <div className="flex justify-left mb-4" data-testid="task-controls">
+            <div className="flex gap-4 w-full">
+              <div className="flex-1 flex gap-2 min-w-0">
+                <div className="relative flex-1 min-w-0">
+                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary-muted" />
+                  <input
+                    type="text"
+                    data-testid="task-search-input"
+                    placeholder="Search tasks..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full h-10 pl-10 pr-4 bg-surface border border-white/10 rounded-lg
+                              text-primary placeholder:text-primary-muted
+                              focus:outline-none focus:ring-2 focus:ring-white/20
+                              transition-all duration-200"
+                  />
+                </div>
 
-        {/* Search and Filter Bar */}
-        <div className="flex justify-left mb-8">
-          <div className="flex gap-4 w-full md:w-[640px]">
-            <div className="flex-1 flex gap-2 min-w-0">
-              <div className="relative flex-1 min-w-0">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-primary-muted" />
-                <input
-                  type="text"
-                  placeholder="Search tasks..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full h-10 pl-10 pr-4 bg-surface border border-white/10 rounded-lg
-                            text-primary placeholder:text-primary-muted
-                            focus:outline-none focus:ring-2 focus:ring-white/20
-                            transition-all duration-200"
-                />
-              </div>
+                <Popover className="relative" data-testid="category-filter">
+                  {({ open }) => (
+                    <>
+                      <Popover.Button
+                        ref={filterButtonRef}
+                        type="button"
+                        data-testid="category-filter-button"
+                        className={`
+                          h-10 aspect-square rounded-lg transition-all duration-200
+                          flex items-center justify-center
+                          ${open 
+                            ? 'bg-white/20 text-white' 
+                            : 'bg-surface border border-white/10 text-primary-muted hover:text-primary hover:border-white/20'
+                          }
+                        `}
+                      >
+                        <FunnelIcon className="h-5 w-5" />
+                        {activeCategories.size > 0 && (
+                          <span 
+                            data-testid="category-filter-count"
+                            className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-white/90 text-black text-xs flex items-center justify-center"
+                          >
+                            {activeCategories.size}
+                          </span>
+                        )}
+                      </Popover.Button>
 
-              <Popover className="relative">
-                {({ open }) => (
-                  <>
-                    <Popover.Button
-                      ref={filterButtonRef}
-                      className={`
-                        h-10 aspect-square rounded-lg transition-all duration-200
-                        flex items-center justify-center
-                        ${open 
-                          ? 'bg-white/20 text-white' 
-                          : 'bg-surface border border-white/10 text-primary-muted hover:text-primary hover:border-white/20'
-                        }
-                      `}
-                    >
-                      <FunnelIcon className="h-5 w-5" />
-                      {activeCategories.size > 0 && (
-                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-white/90 text-black text-xs flex items-center justify-center">
-                          {activeCategories.size}
-                        </span>
-                      )}
-                    </Popover.Button>
-
-                    <Popover.Panel className="absolute right-0 mt-2 w-80 z-10">
-                      <div className="bg-surface border border-white/10 rounded-lg p-4 shadow-xl">
-                        {/* Category filter section */}
-                        <div>
-                          <h3 className="text-sm font-medium text-primary-muted mb-2 flex justify-between items-center">
-                            <span>Category</span>
-                            {activeCategories.size > 0 && (
-                              <button
-                                onClick={() => {
-                                  setActiveCategories(new Set())
-                                  closePopover()
-                                }}
-                                className="text-xs text-white hover:text-white/80"
-                              >
-                                Clear all
-                              </button>
-                            )}
-                          </h3>
-                          <div className="flex flex-wrap gap-2">
+                      <Popover.Panel className="absolute right-0 mt-2 w-80 z-10">
+                        <div className="bg-surface border border-white/10 rounded-lg p-4 shadow-xl">
+                          <div className="flex flex-wrap gap-2" data-testid="category-filter-list">
                             {categories?.map(category => (
                               <button
                                 key={category.id}
-                                onClick={() => {
-                                  setActiveCategories(prev => {
-                                    const next = new Set(prev)
-                                    if (next.has(category.id)) {
-                                      next.delete(category.id)
-                                    } else {
-                                      next.add(category.id)
-                                    }
-                                    return next
-                                  })
-                                }}
+                                onClick={() => toggleCategory(category.id)}
+                                data-testid={`category-filter-item-${category.id}`}
                                 className={`
-                                  px-4 py-1.5 rounded-lg text-sm transition-all duration-200
+                                  px-3 py-1.5 text-sm rounded-lg transition-all duration-200
                                   ${activeCategories.has(category.id)
-                                    ? 'bg-white/90 text-black border border-white/20' 
+                                    ? 'bg-white/20 text-primary border border-white/20'
                                     : 'bg-surface border border-white/10 text-primary-muted hover:text-primary hover:border-white/20'
                                   }
                                 `}
                               >
-                                {category.name.toLowerCase()}
-                                {category.isDefault && ' (default)'}
+                                {category.name}
                               </button>
                             ))}
                           </div>
                         </div>
-
-                        {/* Done button for multi-select */}
-                        <div className="mt-4 flex justify-end">
-                          <button
-                            onClick={closePopover}
-                            className="px-4 py-2 bg-white/90 text-black rounded-lg text-sm hover:bg-white/80 transition-colors"
-                          >
-                            Done
-                          </button>
-                        </div>
-                      </div>
-                    </Popover.Panel>
-                  </>
-                )}
-              </Popover>
+                      </Popover.Panel>
+                    </>
+                  )}
+                </Popover>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Status Tabs */}
-        <div className="mb-6 border-b border-white/10 overflow-x-auto">
-          <div className="max-w-2xl px-4">
-            <div className="flex gap-2 min-w-max">
-              {taskStatuses.map(status => (
+          <div className={`
+            mt-1 mb-6 flex flex-wrap gap-2
+            transition-all duration-200
+            ${(activeCategories.size > 0 || searchQuery) ? 'min-h-[2rem] py-1 opacity-100' : 'min-h-0 h-0 opacity-0 overflow-hidden'}
+          `}>
+            {searchQuery && (
+              <div className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-white/10 text-primary">
+                <span>"{searchQuery}"</span>
                 <button
-                  key={status.id}
-                  onClick={() => setActiveStatus(status.id)}
-                  className={`
-                    px-4 py-2 text-sm transition-all duration-200 relative
-                    ${activeStatus === status.id 
-                      ? 'text-primary bg-white/20 rounded-t-lg' 
-                      : 'text-primary-muted hover:text-primary rounded-lg p-2'
-                    }
-                    ${activeStatus === status.id && 'after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:bg-white/20'}
-                  `}
+                  onClick={() => setSearchQuery('')}
+                  className="text-primary-muted hover:text-primary"
                 >
-                  {status.label}
+                  <XMarkIcon className="h-4 w-4" />
+                  <span className="sr-only">Clear search</span>
                 </button>
-              ))}
+              </div>
+            )}
+            
+            {Array.from(activeCategories).map(categoryId => {
+              const category = categories?.find(c => c.id === categoryId)
+              if (!category) return null
+              
+              return (
+                <div 
+                  key={categoryId}
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-white/10 text-primary"
+                >
+                  <span>{category.name}</span>
+                  <button
+                    onClick={() => toggleCategory(categoryId)}
+                    className="text-primary-muted hover:text-primary"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                    <span className="sr-only">Remove {category.name} filter</span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <button
+                key="ALL"
+                type="button"
+                data-testid="status-tab-all"
+                onClick={(e) => {
+                  e.preventDefault()
+                  setActiveStatus('ALL')
+                }}
+                className={`
+                  px-4 py-2 text-sm transition-all duration-200
+                  rounded-lg border
+                  ${activeStatus === 'ALL' 
+                    ? 'text-primary bg-white/20 border-white/20' 
+                    : 'text-primary-muted hover:text-primary border-white/10 bg-white/5 hover:border-white/20'
+                  }
+                `}
+              >
+                all tasks
+              </button>
+            </div>
+
+            <div className="flex bg-surface/50 rounded-lg border border-white/10 p-0.5">
+              {taskStatuses
+                .filter(status => status.isActionable)
+                .map(({ id, label }, index, array) => (
+                  <button
+                    key={id}
+                    type="button"
+                    data-testid={`status-tab-${id.toLowerCase()}`}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setActiveStatus(id as TaskStatus | 'ALL')
+                    }}
+                    className={`
+                      px-4 py-2 text-sm transition-all duration-200
+                      ${index === 0 ? 'rounded-l-lg' : ''}
+                      ${index === array.length - 1 ? 'rounded-r-lg' : ''}
+                      ${activeStatus === id 
+                        ? 'text-primary bg-white/20' 
+                        : 'text-primary-muted hover:text-primary'
+                      }
+                    `}
+                  >
+                    {label}
+                  </button>
+                ))}
             </div>
           </div>
         </div>
 
-        {/* Task Column */}
         <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="flex-1 min-h-0 bg-surface/50 backdrop-blur-lg rounded-xl border border-white/10">
+          <div 
+            data-testid="task-board"
+            className="flex-1 min-h-0 bg-surface/50 backdrop-blur-lg rounded-xl border border-white/10
+                      md:mx-auto md:w-[768px] lg:w-[896px]"
+          >
             <TaskColumn
               categories={categories ?? []}
               tasks={filteredTasks}
@@ -412,6 +369,7 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
         isOpen={!!editingTask}
         onClose={() => setEditingTask(null)}
         title="Edit Task"
+        data-testid="edit-task-modal"
       >
         {editingTask && (
           <TaskForm
@@ -420,16 +378,16 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
             userId={userId}
             onSubmit={async (data) => {
               try {
-                alerts.info('Updating task...')  // Show pending state
+                alerts.info('Updating task...')
                 await updateTaskMutation.mutateAsync({
                   taskId: editingTask.id,
                   data
                 })
                 setEditingTask(null)
-                alerts.success('Task updated successfully')  // Show success
+                alerts.success('Task updated successfully')
               } catch (error) {
                 console.error('Failed to update task:', error)
-                alerts.error('Failed to update task')  // Show error
+                alerts.error('Failed to update task')
               }
             }}
             onCancel={() => setEditingTask(null)}

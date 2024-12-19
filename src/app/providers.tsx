@@ -1,8 +1,8 @@
 'use client'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools'
 import { ClerkProvider } from '@clerk/nextjs'
-import { DragDropContext } from '@hello-pangea/dnd'
 import Navbar from '@/app/components/navigation/Navbar'
 import { useState } from 'react'
 import { ToastContainer } from 'react-toastify'
@@ -14,11 +14,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
       <QueryClientProvider client={queryClient}>
-        <DragDropContext onDragEnd={() => {}}>
-          <Navbar />
-          <main>{children}</main>
-          <ToastContainer theme="dark" />
-        </DragDropContext>
+        <Navbar />
+        <main>{children}</main>
+        <ToastContainer theme="dark" />
+        <ReactQueryDevtools initialIsOpen={false} />
       </QueryClientProvider>
     </ClerkProvider>
   )

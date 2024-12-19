@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
+import { Dialog } from '@headlessui/react';
 
 interface ModalProps {
   isOpen: boolean;
@@ -34,40 +35,44 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-50 overflow-y-auto touch-none"
-      aria-modal="true"
-      role="dialog"
+    <Dialog 
+      open={isOpen} 
+      onClose={(e: any) => {
+        e?.preventDefault?.()
+        onClose()
+      }}
+      className="relative z-50"
     >
       <div 
-        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
-        onClick={handleBackdropClick}
-        onTouchEnd={handleBackdropClick}
+        className="fixed inset-0 bg-black/30" 
+        aria-hidden="true"
+        data-testid="modal-backdrop"
+        onClick={(e) => {
+          e.preventDefault()
+          if (e.target === e.currentTarget) {
+            onClose()
+          }
+        }}
       />
 
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div 
-          className="relative w-full max-w-md transform overflow-hidden 
-                     rounded-xl bg-surface border border-white/10 p-6 shadow-xl 
-                     transition-all"
-          onClick={(e) => e.stopPropagation()}
-          onTouchEnd={(e) => e.stopPropagation()}
+      <div className="fixed inset-0 flex items-center justify-center p-4">
+        <Dialog.Panel 
+          data-testid="modal-panel"
+          className="mx-auto max-w-sm md:max-w-2xl lg:max-w-4xl rounded-xl bg-surface border border-white/10 
+                     p-6 md:p-8 lg:p-10"
         >
-          <button
-            onClick={onClose}
-            className="absolute right-4 top-4 p-2 text-primary-muted 
-                     hover:text-primary rounded-lg transition-colors"
-            aria-label="Close modal"
+          <Dialog.Title 
+            data-testid="modal-title"
+            className="text-lg font-medium text-primary mb-4"
           >
-            <XMarkIcon className="h-5 w-5" />
-          </button>
-
-          <h2 className="text-lg font-medium text-primary mb-6">{title}</h2>
-          
-          {children}
-        </div>
+            {title}
+          </Dialog.Title>
+          <div data-testid="modal-content">
+            {children}
+          </div>
+        </Dialog.Panel>
       </div>
-    </div>
+    </Dialog>
   );
 };
 

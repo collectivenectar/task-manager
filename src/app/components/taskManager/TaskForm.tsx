@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getTasksByCategory, deleteCategory } from '@/app/actions'
 import { TrashIcon } from '@heroicons/react/24/outline'
 import { alerts } from '@/lib/utils/alerts'
+import { ValidationError } from '@/lib/errors'
 
 interface TaskFormProps {
   onSubmit: (data: {
@@ -29,10 +30,8 @@ interface TaskFormProps {
 type FormErrors = { [key: string]: string }
 
 const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCategoryCreate, initialData, categories, userId }) => {
-  // Get queryClient instance
   const queryClient = useQueryClient()
 
-  // Find default category
   const defaultCategory = categories.find(c => c.isDefault)
   if (!defaultCategory) {
     throw new Error('Default category is required')
@@ -43,7 +42,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     description: initialData?.description || '',
     status: initialData?.status || 'TODO',
     dueDate: initialData?.dueDate || null,
-    // Always have a category selected - either the task's category or the default
     categoryId: initialData?.categoryId || defaultCategory.id
   })
   const [errors, setErrors] = useState<FormErrors>({})
@@ -57,7 +55,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     queryFn: () => categoryToDelete 
       ? getTasksByCategory(userId, categoryToDelete.id)
         .catch(error => {
-          // If the category is not found, return empty array
           if (error.message.includes('not found')) {
             return []
           }
@@ -75,7 +72,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
   ) => {
     const { name, value } = e.target
     
-    // Special handling for date - preserve the exact input value
     if (name === 'dueDate') {
       setFormData(prev => ({
         ...prev,
@@ -84,7 +80,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     } else {
       setFormData(prev => ({ ...prev, [name]: value }))
     }
-    // Clear error when field is modified
     if (errors[name]) {
       setErrors(prev => {
         const { [name]: _, ...rest } = prev
@@ -96,10 +91,23 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
+    const trimmedTitle = formData.title.trim()
+    const trimmedDescription = formData.description?.trim() || ''
+    
+    if (!trimmedTitle) {
+      setErrors({ title: 'Title is required' })
+      return
+    }
+
     try {
-      const validated = taskSchema.parse(formData)
-      await onSubmit(validated)
-      // Only reset after successful submission
+      await onSubmit({
+        title: trimmedTitle,
+        description: trimmedDescription || undefined,
+        status: formData.status as TaskStatus,
+        dueDate: formData.dueDate,
+        categoryId: formData.categoryId
+      })
+
       if (!initialData) {
         setFormData({
           title: '',
@@ -108,16 +116,14 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
           dueDate: null,
           categoryId: defaultCategory.id
         })
+        setErrors({})
       }
     } catch (error) {
-      console.error('Form validation error:', error)
-      if (error instanceof z.ZodError) {
-        const newErrors: FormErrors = {}
-        error.errors.forEach(err => {
-          const field = err.path[0] as string
-          newErrors[field] = err.message
-        })
-        setErrors(newErrors)
+      if (error instanceof ValidationError) {
+        setErrors({ title: error.message })
+      } else {
+        console.error('Form submission error:', error)
+        alerts.error('Failed to save task')
       }
     }
   }
@@ -131,22 +137,24 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
       setNewCategoryName('');
       setIsAddingCategory(false);
     } catch (error) {
+      if (error instanceof ValidationError) {
+        setErrors({ title: error.message })
+      } else {
+        setErrors({ title: 'Failed to create category' })
+      }
       console.error('Failed to create category:', error);
     }
   }
 
-  const handleCategoryDelete = async (targetCategoryId: string) => {
+  const handleCategoryDelete = async (mode: 'delete_all' | 'move', targetCategoryId?: string) => {
     try {
       if (!categoryToDelete) return
       
       alerts.info('Deleting category...')
       
-      await deleteCategory(userId, categoryToDelete.id, targetCategoryId)
+      await deleteCategory(userId, categoryToDelete.id, mode, targetCategoryId)
       
-      // First, remove the category from the cache to prevent unnecessary refetches
       queryClient.setQueryData(['tasks', 'category', categoryToDelete.id], [])
-      
-      // Then invalidate queries in sequence
       await queryClient.invalidateQueries({ 
         queryKey: ['categories'],
         exact: true 
@@ -156,8 +164,10 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
         exact: true
       })
       
-      // Close modal and show success message
       setCategoryToDelete(null)
+      if (initialData && initialData.categoryId === categoryToDelete.id) {
+        onCancel()
+      }
       alerts.success('Category deleted successfully')
     } catch (error) {
       console.error('Failed to delete category:', error)
@@ -165,18 +175,15 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     }
   }
 
-  // Rest of the JSX remains the same, but add error display:
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" data-testid="task-form">
         <div>
-          <label htmlFor="title" className="block text-sm font-medium text-primary-muted mb-2">
-            Task Title
-          </label>
+          <label htmlFor="title">Task title</label>
           <input
-            type="text"
             id="title"
             name="title"
+            data-testid="task-title-input"
             value={formData.title}
             onChange={handleChange}
             className={`
@@ -194,12 +201,11 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
         </div>
 
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-primary-muted mb-2">
-            Description
-          </label>
+          <label htmlFor="description">Description</label>
           <textarea
             id="description"
             name="description"
+            data-testid="task-description-input"
             value={formData.description}
             onChange={handleChange}
             rows={3}
@@ -224,6 +230,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
           <select
             id="status"
             name="status"
+            data-testid="task-status-select"
             value={formData.status}
             onChange={handleChange}
             className={`
@@ -266,32 +273,33 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
             Category
           </label>
           <div className="flex flex-wrap gap-2">
-            {categories.map(category => (
-              <div key={category.id} className="flex items-center gap-2">
+            {categories?.map(category => (
+              <div 
+                key={category.id}
+                className={`
+                  flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-all
+                  ${formData.categoryId === category.id
+                    ? 'bg-white/20 text-primary border border-white/20' 
+                    : 'bg-surface border border-white/10 text-primary-muted hover:text-primary hover:border-white/20'
+                  }
+                `}
+              >
                 <button
                   type="button"
                   onClick={() => setFormData(prev => ({ ...prev, categoryId: category.id }))}
-                  className={`
-                    px-4 py-1.5 text-sm rounded-lg flex-1
-                    ${formData.categoryId === category.id
-                      ? 'bg-white/90 text-black'
-                      : 'bg-surface border border-white/10 text-primary-muted hover:text-primary hover:border-white/20'
-                    }
-                    transition-all duration-200
-                  `}
+                  className="flex-1"
                 >
                   {category.name}
-                  {category.isDefault && ' (Default)'}
                 </button>
                 
                 {!category.isDefault && (
                   <button
                     type="button"
                     onClick={() => setCategoryToDelete(category)}
-                    className="p-1.5 text-red-400 hover:text-red-300
-                             hover:bg-red-500/10 rounded-lg transition-all"
+                    className="text-primary-muted hover:text-red-400 transition-colors pl-2 border-l border-white/10"
                   >
                     <TrashIcon className="h-4 w-4" />
+                    <span className="sr-only">Delete {category.name}</span>
                   </button>
                 )}
               </div>
@@ -355,6 +363,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
           {initialData && (
             <button
               type="button"
+              data-testid="task-delete-button"
               onClick={() => setIsDeleteModalOpen(true)}
               className="w-full px-4 py-2 rounded-lg text-red-400 hover:text-red-300
                        hover:bg-red-500/10 transition-all border border-red-500/20"
@@ -365,6 +374,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
           <div className="flex gap-3">
             <button
               type="submit"
+              data-testid="task-submit-button"
               className="flex-1 bg-white/90 text-black px-4 py-2 rounded-lg
                        hover:bg-white/75 transition-colors"
             >
@@ -372,10 +382,12 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
             </button>
             <button
               type="button"
+              data-testid="task-cancel-button"
               onClick={onCancel}
               className="flex-1 bg-surface border border-white/10 text-primary-muted 
                        px-4 py-2 rounded-lg hover:text-primary hover:border-white/20
                        transition-all"
+              aria-label="Cancel"
             >
               Cancel
             </button>

@@ -1,12 +1,16 @@
+import TaskBoard from '@/app/components/taskManager/TaskBoard'
+import { getTasks } from '@/app/actions'
+import { getOrCreateDBUser } from './actions'
 
-
-export default function Home() {
+export default async function Home() {
+  const user = await getOrCreateDBUser()
+  if (!user) return null
+  
+  const initialTasks = await getTasks(user.id)
+  
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-      <h1 className="text-4xl font-bold">Welcome</h1>
-      <div className="flex gap-4">
-        
-      </div>
-    </div>
-  );
+    <main className="h-screen p-4">
+      <TaskBoard initialTasks={initialTasks} userId={user.id} />
+    </main>
+  )
 }

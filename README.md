@@ -1,30 +1,36 @@
-# Task Manager Application
+# TUDU - Task Management Application
 
-It allows users to manage tasks efficiently, with features like categorization, drag-and-drop organization, and is responsively designed for desktop and mobile devices.
+A modern task management application built with Next.js, Prisma, and TypeScript.
+
+## Features
+- Real-time task management with drag-and-drop functionality
+- Category organization with flexible task grouping
+- Responsive design for mobile and desktop
+- Optimistic updates for smooth UX
+- Efficient task reordering system
 
 ## Tech Stack
-- **Frontend**: Next.js with TypeScript
-- **Backend**: Next.js API Routes
-- **Database**: Neon Serverless PostgreSQL with Prisma ORM
-- **Styling**: Tailwind CSS
-- **State Management**: TanStack Query, Zustand
+- Next.js 15
+- TypeScript
+- Prisma with PostgreSQL
+- TanStack Query
+- Tailwind CSS
+- Clerk Authentication
+- Jest & React Testing Library
 
-## Setup (WIP)
-1. Clone the repository.
-2. Install dependencies: `npm install`.
-3. Create a `.env` file based on `.env.example`.
-4. Run the development server: `npm run dev`.
+## Getting Started
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Set up environment variables:   ```env
+   DATABASE_URL=your_db_url
+   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_key
+   CLERK_SECRET_KEY=your_clerk_secret   ```
+4. Run migrations: `npx prisma migrate dev`
+5. Start development server: `npm run dev`
 
-## CI/CD
-- **CI Pipeline**: GitHub Actions is configured to automatically run tests, linting, and type-checking on every push to the repository.
-  - Tests: Runs unit and integration tests
-  - Linting: Ensures code quality with ESLint.
-  - Type Checking: Runs `tsc --noEmit` to ensure TypeScript type safety quickly during development.
-
-## Features (Planned)
-- Create, update, and delete tasks.
-- Multi user profiles.
-- Drag-and-drop task organization.
-- Search and filter tasks.
-
-**Status**: 🚧 Work in Progress 🚧
+## Architecture
+- `/app` - Next.js app router components and pages
+- `/components` - Reusable React components
+- `/lib` - Utility functions and shared logic
+- `/hooks` - Custom React hooks
+- `/prisma` - Database schema and migrations
