@@ -3,9 +3,20 @@ import { moveTask, updateTask, updateTaskStatus, deleteTask, createTask } from '
 import { Task, TaskStatus } from '@prisma/client'
 import { alerts } from '@/lib/utils/alerts'
 
+/**
+ * Custom hook for managing task-related mutations
+ * @param userId - The ID of the user performing the mutations
+ * @returns Object containing mutation functions for task operations
+ */
 export function useTaskMutations(userId: string) {
   const queryClient = useQueryClient()
   
+  /**
+   * Mutation for reordering tasks
+   * Handles optimistic updates and rollbacks on failure
+   * Updates task positions based on drag and drop operations
+   * @internal
+   */
   const reorderMutation = useMutation({
     mutationFn: (params: { taskId: string, beforeId: string, afterId: string }) => 
       moveTask(userId, params.taskId, { 
@@ -50,6 +61,34 @@ export function useTaskMutations(userId: string) {
     }
   })
 
+  /**
+   * Mutation for creating new tasks
+   * Validates and creates a task with the given properties
+   * Automatically invalidates task queries on success
+   * @internal
+   */
+  const createTaskMutation = useMutation({
+    mutationFn: (data: {
+      title: string
+      description?: string | null
+      status: TaskStatus
+      dueDate?: Date | null
+      categoryId: string
+    }) => createTask(userId, {
+      ...data,
+      description: data.description || undefined  // Convert null to undefined
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+    }
+  })
+
+  /**
+   * Mutation for updating existing tasks
+   * Handles partial updates of task properties
+   * Automatically invalidates task queries on success
+   * @internal
+   */
   const updateTaskMutation = useMutation({
     mutationFn: (params: { 
       taskId: string, 
@@ -66,6 +105,12 @@ export function useTaskMutations(userId: string) {
     }
   })
 
+  /**
+   * Mutation for updating task status
+   * Provides optimistic updates for immediate UI feedback
+   * Rolls back on failure
+   * @internal
+   */
   const updateTaskStatusMutation = useMutation({
     mutationFn: (params: { taskId: string, status: TaskStatus }) => 
       updateTaskStatus(userId, params.taskId, params.status),
@@ -90,6 +135,12 @@ export function useTaskMutations(userId: string) {
     }
   })
 
+  /**
+   * Mutation for deleting tasks
+   * Provides optimistic updates and user feedback via alerts
+   * Rolls back on failure
+   * @internal
+   */
   const deleteTaskMutation = useMutation({
     mutationFn: (taskId: string) => deleteTask(userId, taskId),
     onMutate: async (taskId) => {
@@ -112,22 +163,6 @@ export function useTaskMutations(userId: string) {
       alerts.error('Failed to delete task')
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-    }
-  })
-
-  const createTaskMutation = useMutation({
-    mutationFn: (data: {
-      title: string
-      description?: string | null
-      status: TaskStatus
-      dueDate?: Date | null
-      categoryId: string
-    }) => createTask(userId, {
-      ...data,
-      description: data.description || undefined  // Convert null to undefined
-    }),
-    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
     }
   })

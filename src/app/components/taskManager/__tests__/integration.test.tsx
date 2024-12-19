@@ -1,6 +1,6 @@
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import TaskBoard from '../TaskBoard'
+import TaskBoard from '../board/TaskBoard'
 import * as actions from '@/app/actions'
 import { TaskStatus, Task } from '@prisma/client'
 import { toast } from 'react-toastify'

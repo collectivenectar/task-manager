@@ -8,14 +8,14 @@ import { MagnifyingGlassIcon, FunnelIcon, PlusIcon, XMarkIcon } from '@heroicons
 import { toast } from 'react-toastify'
 
 import TaskColumn from './TaskColumn'
-import Modal from '../common/Modal'
-import TaskForm from './TaskForm'
-import { getTasks } from '@/app/actions'
+import Modal from '../../common/Modal'
+import TaskForm from '../forms/TaskForm'
 import { alerts } from '@/lib/utils/alerts'
 import { ValidationError } from '@/lib/errors'
-import { useTaskMutations } from './hooks/useTaskMutations'
-import { useTaskQueries } from './hooks/useTaskQueries'
-import { useCategoryMutations } from './hooks/useCategoryMutations'
+import { useTaskMutations } from '../hooks/useTaskMutations'
+import { useTaskQueries } from '../hooks/useTaskQueries'
+import { useCategoryMutations } from '../hooks/useCategoryMutations'
+import TaskBoardSkeleton from './TaskBoardSkeleton'
 
 interface TaskBoardProps {
   initialTasks: Task[]
@@ -85,7 +85,7 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
 
   // 6. Loading state check
   if (isLoading) {
-    return <div>Loading...</div>
+    return <TaskBoardSkeleton />
   }
 
   // 7. Error state check

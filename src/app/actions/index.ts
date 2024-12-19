@@ -1,10 +1,23 @@
 'use server'
 
+/**
+ * Server Actions for Task Management
+ * 
+ * Security:
+ * - All actions verify user ownership
+ * - Input validation via Zod schemas
+ * - Error handling for all edge cases
+ * 
+ * Performance:
+ * - Optimized queries with proper relations
+ * - Transaction support for complex operations
+ * - Position-based ordering system
+ */
+
 import { auth, currentUser } from '@clerk/nextjs/server'
-import { Prisma, TaskStatus, Task } from '@prisma/client'
+import { TaskStatus, Task } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { ValidationError, AuthorizationError, PositionError } from '@/lib/errors'
-import { categorySchema } from '@/lib/schemas/category'
 import { TaskFormData, taskSchema } from '@/lib/schemas/task'
 
 interface CreateTaskInput {
@@ -16,6 +29,12 @@ interface CreateTaskInput {
 }
 
 // User management
+/**
+ * Gets or creates a user in the database
+ * @param userId - The ID of the user from Clerk
+ * @throws {AuthorizationError} If user is not authenticated
+ * @returns The user object
+ */
 export async function getOrCreateDBUser() {
   try {
     const { userId } = await auth()
@@ -51,25 +70,43 @@ export async function getOrCreateDBUser() {
 }
 
 // Input validation helpers
+/**
+ * Validates task title format
+ * @param title - The title to validate
+ * @throws {ValidationError} If title is invalid
+ */
 const validateTitle = (title: string) => {
   if (!title?.trim() || title.length > 255) {
     throw new ValidationError('Title must be between 1 and 255 characters')
   }
 }
 
-const validateDescription = (description?: string) => {
+/**
+ * Validates task description length
+ * @param description - The description to validate
+ * @throws {ValidationError} If description is too long
+ */const validateDescription = (description?: string) => {
   if (description && description.length > 1000) {
     throw new ValidationError('Description must not exceed 1000 characters')
   }
 }
 
+/**
+ * Validates task due date format
+ * @param dueDate - The date to validate
+ * @throws {ValidationError} If date format is invalid
+ */
 const validateDueDate = (dueDate?: Date | null) => {
   if (dueDate && (!(dueDate instanceof Date) || isNaN(dueDate.getTime()))) {
     throw new ValidationError('Invalid due date format')
   }
 }
 
-// Add these validation helpers
+/**
+ * Validates task status value
+ * @param status - The status to validate
+ * @throws {ValidationError} If status is invalid
+ */
 const validateStatus = (status: TaskStatus) => {
   const validStatuses = ['TODO', 'IN_PROGRESS', 'COMPLETED']
   if (!validStatuses.includes(status)) {
@@ -77,6 +114,12 @@ const validateStatus = (status: TaskStatus) => {
   }
 }
 
+/**
+ * Validates category ownership
+ * @param userId - The ID of the user
+ * @param categoryId - The ID of the category
+ * @throws {ValidationError} If validation fails
+ */
 const validateCategoryId = async (userId: string, categoryId?: string) => {
   if (categoryId) {
     await verifyCategoryOwnership(userId, categoryId)
@@ -84,6 +127,11 @@ const validateCategoryId = async (userId: string, categoryId?: string) => {
 }
 
 // Utility functions
+/**
+ * Gets or creates the default category for a user
+ * @param userId - The ID of the user
+ * @returns The ID of the default category
+ */
 async function getDefaultCategoryId(userId: string): Promise<string> {
   const defaultCategory = await prisma.category.findFirst({
     where: { userId, isDefault: true }
@@ -104,6 +152,13 @@ async function getDefaultCategoryId(userId: string): Promise<string> {
   return defaultCategory.id
 }
 
+/**
+ * Verifies a user owns a task and has permission to modify it
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task to verify
+ * @throws {AuthorizationError} If the task doesn't exist or user lacks permission
+ * @returns The verified task
+ */
 async function verifyTaskOwnership(userId: string, taskId: string) {
   const task = await prisma.task.findFirst({
     where: { id: taskId, userId }
@@ -114,6 +169,13 @@ async function verifyTaskOwnership(userId: string, taskId: string) {
   return task
 }
 
+/**
+ * Verifies a user owns a category and has permission to modify it
+ * @param userId - The ID of the user
+ * @param categoryId - The ID of the category to verify
+ * @throws {AuthorizationError} If the category doesn't exist or user lacks permission
+ * @returns The verified category
+ */
 async function verifyCategoryOwnership(userId: string, categoryId: string) {
   const category = await prisma.category.findFirst({
     where: { id: categoryId, userId }
@@ -125,6 +187,14 @@ async function verifyCategoryOwnership(userId: string, categoryId: string) {
 }
 
 // Create task for specific user
+/**
+ * Creates a new task for a user
+ * @param userId - The ID of the user creating the task
+ * @param data - The task data including title, description, status, etc.
+ * @throws {ValidationError} If the task data is invalid
+ * @throws {AuthorizationError} If the user is not authorized
+ * @returns The created task
+ */
 export async function createTask(userId: string, data: CreateTaskInput) {
   try {
     // Validation first
@@ -153,7 +223,12 @@ export async function createTask(userId: string, data: CreateTaskInput) {
   }
 }
 
-// Get all tasks for specific user
+/**
+ * Retrieves all tasks for a specific user
+ * @param userId - The ID of the user
+ * @throws {Error} If there's an error fetching tasks
+ * @returns Array of tasks with their categories
+ */
 export async function getTasks(userId: string) {
   try {
     return await prisma.task.findMany({
@@ -167,7 +242,13 @@ export async function getTasks(userId: string) {
   }
 }
 
-// Get single task (with user verification)
+/**
+ * Gets a single task with ownership verification
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns The requested task
+ */
 export async function getTask(userId: string, taskId: string) {
   try {
     const task = await verifyTaskOwnership(userId, taskId)
@@ -181,7 +262,15 @@ export async function getTask(userId: string, taskId: string) {
   }
 }
 
-// Update task title
+/**
+ * Updates a task's title
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task
+ * @param title - The new title
+ * @throws {ValidationError} If title is invalid
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns The updated task
+ */
 export async function updateTaskTitle(userId: string, taskId: string, title: string) {
   try {
     validateTitle(title)
@@ -200,7 +289,15 @@ export async function updateTaskTitle(userId: string, taskId: string, title: str
   }
 }
 
-// Update task description
+/**
+ * Updates a task's description
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task
+ * @param description - The new description
+ * @throws {ValidationError} If description is invalid
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns The updated task
+ */
 export async function updateTaskDescription(userId: string, taskId: string, description: string) {
   try {
     validateDescription(description)
@@ -219,15 +316,22 @@ export async function updateTaskDescription(userId: string, taskId: string, desc
   }
 }
 
-// Update task status
-export async function updateTaskStatus(userId: string, taskId: string, status: TaskStatus) {
+/**
+ * Updates task status
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task
+ * @param newStatus - The new status to set
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns The updated task
+ */
+export async function updateTaskStatus(userId: string, taskId: string, newStatus: TaskStatus) {
   try {
     await verifyTaskOwnership(userId, taskId)
-    validateStatus(status)
+    validateStatus(newStatus)
     
     return await prisma.task.update({
       where: { id: taskId },
-      data: { status }
+      data: { status: newStatus }
     })
   } catch (error) {
     console.error('Error updating task status:', error)
@@ -238,7 +342,15 @@ export async function updateTaskStatus(userId: string, taskId: string, status: T
   }
 }
 
-// Update task category
+/**
+ * Updates a task's category
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task
+ * @param categoryId - The ID of the new category
+ * @throws {ValidationError} If category is invalid
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns The updated task
+ */
 export async function updateTaskCategory(userId: string, taskId: string, categoryId: string) {
   try {
     await verifyTaskOwnership(userId, taskId)
@@ -257,7 +369,13 @@ export async function updateTaskCategory(userId: string, taskId: string, categor
   }
 }
 
-// Delete task
+/**
+ * Deletes a task
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task to delete
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns The deleted task
+ */
 export async function deleteTask(userId: string, taskId: string) {
   try {
     await verifyTaskOwnership(userId, taskId)
@@ -274,7 +392,15 @@ export async function deleteTask(userId: string, taskId: string) {
   }
 }
 
-// Combined update function for multiple fields
+/**
+ * Updates an existing task
+ * @param userId - The ID of the user updating the task
+ * @param taskId - The ID of the task to update
+ * @param data - The updated task data
+ * @throws {ValidationError} If the update data is invalid
+ * @throws {AuthorizationError} If the user lacks permission
+ * @returns The updated task
+ */
 export async function updateTask(
   userId: string,
   taskId: string,
@@ -309,7 +435,14 @@ export async function updateTask(
   }
 }
 
-// Add new move actions
+/**
+ * Moves a task to a new position
+ * @param userId - The ID of the user
+ * @param taskId - The ID of the task
+ * @param data - Object containing beforeId and/or afterId for positioning
+ * @throws {AuthorizationError} If user lacks permission
+ * @throws {PositionError} If rebalancing fails
+ */
 export async function moveTask(
   userId: string,
   taskId: string,
@@ -385,7 +518,13 @@ export async function moveTask(
   }
 }
 
-// Helper function to rebalance positions
+/**
+ * Rebalances position numbers for a list of tasks
+ * @param tx - The prisma transaction client
+ * @param tasks - Array of tasks to rebalance
+ * @throws {PositionError} If rebalancing fails
+ * @returns Array of updated tasks
+ */
 async function rebalancePositions(tx: any, tasks: Task[]) {
   try {
     const POSITION_GAP = 1000
@@ -404,6 +543,15 @@ async function rebalancePositions(tx: any, tasks: Task[]) {
   }
 }
 
+/**
+ * Moves a category to a new position
+ * @param userId - The ID of the user
+ * @param categoryId - The ID of the category
+ * @param data - Object containing beforeId and/or afterId for positioning
+ * @throws {AuthorizationError} If user lacks permission
+ * @throws {PositionError} If move fails
+ * @returns The moved category
+ */
 export async function moveCategory(
   userId: string,
   categoryId: string,
@@ -429,7 +577,14 @@ export async function moveCategory(
   }
 }
 
-// Create category
+/**
+ * Creates a new category
+ * @param userId - The ID of the user
+ * @param data - Object containing name and optional isDefault flag
+ * @throws {ValidationError} If data is invalid
+ * @throws {AuthorizationError} If user not found
+ * @returns The created category
+ */
 export async function createCategory(userId: string, data: {
   name: string
   isDefault?: boolean
@@ -477,7 +632,12 @@ export async function createCategory(userId: string, data: {
   }
 }
 
-// Get categories
+/**
+ * Gets all categories for a user
+ * @param userId - The ID of the user
+ * @throws {ValidationError} If userId is invalid
+ * @returns Array of categories with their tasks
+ */
 export async function getCategories(userId: string) {
   try {
     // Update any existing default categories
@@ -497,7 +657,14 @@ export async function getCategories(userId: string) {
   }
 }
 
-// Get tasks by category
+/**
+ * Gets all tasks in a specific category
+ * @param userId - The ID of the user
+ * @param categoryId - The ID of the category
+ * @throws {ValidationError} If IDs are invalid
+ * @throws {AuthorizationError} If user lacks permission
+ * @returns Array of tasks in the category
+ */
 export async function getTasksByCategory(userId: string, categoryId: string) {
   try {
     if (!userId) {
@@ -526,6 +693,12 @@ export async function getTasksByCategory(userId: string, categoryId: string) {
   }
 }
 
+/**
+ * Gets the next available position number for a task
+ * @param userId - The ID of the user
+ * @throws {ValidationError} If userId is invalid
+ * @returns The next position number
+ */
 async function getNextPosition(userId: string): Promise<number> {
   try {
     if (!userId) {
@@ -549,6 +722,15 @@ async function getNextPosition(userId: string): Promise<number> {
 // Add a new type for delete mode
 type DeleteMode = 'delete_all' | 'move'
 
+/**
+ * Deletes a category and handles its tasks
+ * @param userId - The ID of the user
+ * @param categoryId - The ID of the category to delete
+ * @param mode - Whether to delete tasks or move them
+ * @param targetCategoryId - Category to move tasks to if mode is 'move'
+ * @throws {ValidationError} If category is default or data invalid
+ * @throws {AuthorizationError} If user lacks permission
+ */
 export async function deleteCategory(
   userId: string, 
   categoryId: string, 
@@ -597,7 +779,10 @@ export async function deleteCategory(
   }
 }
 
-// One-time update for existing default categories
+/**
+ * Updates default category names from 'Default' to 'unassigned'
+ * @param userId - The ID of the user
+ */
 export async function updateDefaultCategoryName(userId: string) {
   await prisma.category.updateMany({
     where: { 

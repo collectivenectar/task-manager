@@ -3,20 +3,24 @@
 A modern task management application built with Next.js, Prisma, and TypeScript.
 
 ## Features
-- Real-time task management with drag-and-drop functionality
-- Category organization with flexible task grouping
-- Responsive design for mobile and desktop
-- Optimistic updates for smooth UX
-- Efficient task reordering system
+- ✅ Full CRUD task management with drag-and-drop organization
+- 🔍 Search and filter tasks by title, description, status, and category
+- 📱 Responsive design for mobile and desktop
+- 🚀 Optimistic updates for smooth UX
+- 👥 Multi-user support via Clerk authentication
+- 📂 Category-based task organization
 
 ## Tech Stack
-- Next.js 15
-- TypeScript
+- Next.js 14 with Server Actions
+- TypeScript (end-to-end type safety)
 - Prisma with PostgreSQL
-- TanStack Query
+- TanStack Query for state management
 - Tailwind CSS
 - Clerk Authentication
 - Jest & React Testing Library
+- Hello Pangea DnD (maintained fork of react-beautiful-dnd)
+- Headless UI for accessible components
+- Zod for runtime type validation
 
 ## Getting Started
 1. Clone the repository
@@ -29,8 +33,25 @@ A modern task management application built with Next.js, Prisma, and TypeScript.
 5. Start development server: `npm run dev`
 
 ## Architecture
-- `/app` - Next.js app router components and pages
-- `/components` - Reusable React components
-- `/lib` - Utility functions and shared logic
-- `/hooks` - Custom React hooks
-- `/prisma` - Database schema and migrations
+- Server Actions for API endpoints (eliminates need for separate API routes)
+- React Query for client-state management and server-state caching
+- Clerk for authentication and user management
+- Prisma for type-safe database operations
+
+## Security & Performance
+- Server-side ownership verification on all operations
+- Optimistic updates with error recovery
+- Float-based positioning for efficient task reordering
+- Ready for pagination/virtual scrolling
+
+## Testing Coverage
+- Unit tests for components and forms
+- Integration tests for task management flows
+- Mocked external services (Clerk, Prisma)
+- Test utilities for common testing patterns
+
+## Assumptions & Decisions
+- Used Clerk over NextAuth for better TypeScript support
+- Chose PostgreSQL for robust ordering capabilities
+- Implemented categories as a required relationship
+- Optimized for mobile-first development

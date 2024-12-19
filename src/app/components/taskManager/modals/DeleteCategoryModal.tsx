@@ -1,6 +1,6 @@
 import { Category, Task } from '@prisma/client'
 import { useState } from 'react'
-import Modal from './Modal'
+import Modal from '../../common/Modal'
 
 interface DeleteCategoryModalProps {
   isOpen: boolean

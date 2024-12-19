@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { TaskStatus } from '@prisma/client'
 
 export const taskSchema = z.object({
   title: z.string()

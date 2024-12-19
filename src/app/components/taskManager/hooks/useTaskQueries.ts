@@ -1,13 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { getTasks, getCategories } from '@/app/actions'
-import { Task, Category } from '@prisma/client'
+import { Task } from '@prisma/client'
 
 interface UseTaskQueriesProps {
   userId: string
   initialTasks?: Task[]
 }
 
+/**
+ * Custom hook for managing task and category queries
+ * @param props - Object containing userId and optional initial tasks
+ * @returns Object containing tasks, categories, loading states and error states
+ */
 export function useTaskQueries({ userId, initialTasks }: UseTaskQueriesProps) {
+  /**
+   * Query for fetching categories
+   * Includes tasks relationship for each category
+   * Updates default category names if needed
+   * @internal
+   */
   const { 
     data: categories,
     isLoading: isCategoriesLoading 
@@ -16,6 +27,12 @@ export function useTaskQueries({ userId, initialTasks }: UseTaskQueriesProps) {
     queryFn: () => getCategories(userId),
   })
 
+  /**
+   * Query for fetching tasks
+   * Maps category relationships to each task
+   * Supports initial data for SSR
+   * @internal
+   */
   const { 
     data: tasks,
     isLoading: isTasksLoading,

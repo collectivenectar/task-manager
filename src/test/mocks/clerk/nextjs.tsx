@@ -1,4 +1,4 @@
-import React, { Fragment, createElement } from 'react'
+import React from 'react'
 
 export const auth = jest.fn().mockReturnValue({
   userId: 'test-user-id',

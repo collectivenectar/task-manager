@@ -1,4 +1,4 @@
-import TaskBoard from '@/app/components/taskManager/TaskBoard'
+import TaskBoard from '@/app/components/taskManager/board/TaskBoard'
 import { getTasks } from '@/app/actions'
 import { getOrCreateDBUser } from './actions'
 
