@@ -6,31 +6,48 @@ import { prisma } from '@/lib/db'
 import { ValidationError, AuthorizationError, PositionError } from '@/lib/errors'
 import { categorySchema } from '@/lib/schemas/category'
 import { TaskFormData, taskSchema } from '@/lib/schemas/task'
+
+interface CreateTaskInput {
+  title: string;
+  description?: string;
+  categoryId?: string;
+  dueDate?: Date | null;
+  status?: TaskStatus;
+}
+
 // User management
 export async function getOrCreateDBUser() {
-  const { userId } = await auth()
-  if (!userId) {
-    throw new AuthorizationError('Not authenticated')
-  }
+  try {
+    const { userId } = await auth()
+    if (!userId) {
+      throw new AuthorizationError('Not authenticated')
+    }
 
-  // Try to find existing user
-  let dbUser = await prisma.user.findUnique({
-    where: { id: userId }
-  })
-
-  // If user doesn't exist in our database, create them
-  if (!dbUser) {
-    const user = await currentUser()
-    dbUser = await prisma.user.create({
-      data: {
-        id: userId,
-        email: user?.emailAddresses[0]?.emailAddress || '',
-        name: user?.firstName || 'Anonymous'
-      }
+    // Try to find existing user
+    let dbUser = await prisma.user.findUnique({
+      where: { id: userId }
     })
-  }
 
-  return dbUser
+    // If user doesn't exist in our database, create them
+    if (!dbUser) {
+      const user = await currentUser()
+      dbUser = await prisma.user.create({
+        data: {
+          id: userId,
+          email: user?.emailAddresses[0]?.emailAddress || '',
+          name: user?.firstName || 'Anonymous'
+        }
+      })
+    }
+
+    return dbUser
+  } catch (error) {
+    console.error('Error in getOrCreateDBUser:', error)
+    if (error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to get or create user')
+  }
 }
 
 // Input validation helpers
@@ -52,64 +69,17 @@ const validateDueDate = (dueDate?: Date | null) => {
   }
 }
 
-// Error handling wrapper
-async function withErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation()
-  } catch (err) {
-    // Ensure we have a proper Error object
-    const error = err instanceof Error ? err : new Error(String(err))
+// Add these validation helpers
+const validateStatus = (status: TaskStatus) => {
+  const validStatuses = ['TODO', 'IN_PROGRESS', 'COMPLETED']
+  if (!validStatuses.includes(status)) {
+    throw new ValidationError('Invalid status')
+  }
+}
 
-    // Safe error logging that won't cause serialization issues
-    console.error('Error occurred:', {
-      type: error.constructor.name,
-      message: error.message,
-      // Only include stack trace in development
-      ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
-    })
-
-    // Handle custom errors
-    if (error instanceof ValidationError || 
-        error instanceof AuthorizationError || 
-        error instanceof PositionError) {
-      throw error
-    }
-
-    // Handle Prisma-specific errors
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      // Log Prisma-specific details safely
-      console.error('Prisma error:', {
-        code: error.code,
-        message: error.message,
-        meta: JSON.stringify(error.meta)
-      })
-
-      switch (error.code) {
-        case 'P2002':
-          throw new Error(`Unique constraint violation on ${error.meta?.target}`)
-        case 'P2025':
-          throw new Error(`Record not found: ${error.meta?.cause}`)
-        case 'P2003':
-          throw new Error(`Foreign key constraint failed on ${error.meta?.field_name}`)
-        case 'P2014':
-          throw new Error(`The change you are trying to make would violate the required relation '${error.meta?.relation_name}'`)
-        default:
-          throw new Error(`Database error (${error.code}): ${error.message}`)
-      }
-    }
-
-    // Handle Prisma validation errors
-    if (error instanceof Prisma.PrismaClientValidationError) {
-      throw new Error(`Invalid data provided: ${error.message}`)
-    }
-
-    // Handle initialization errors
-    if (error instanceof Prisma.PrismaClientInitializationError) {
-      throw new Error(`Database connection failed: ${error.message}`)
-    }
-
-    // For unknown errors, throw a generic error message
-    throw new Error('An unexpected error occurred')
+const validateCategoryId = async (userId: string, categoryId?: string) => {
+  if (categoryId) {
+    await verifyCategoryOwnership(userId, categoryId)
   }
 }
 
@@ -122,7 +92,7 @@ async function getDefaultCategoryId(userId: string): Promise<string> {
   if (!defaultCategory) {
     const newDefaultCategory = await prisma.category.create({
       data: {
-        name: 'Default',
+        name: 'unassigned',
         isDefault: true,
         userId,
         position: 0
@@ -155,54 +125,65 @@ async function verifyCategoryOwnership(userId: string, categoryId: string) {
 }
 
 // Create task for specific user
-export async function createTask(
-  userId: string,
-  data: {
-    title: string
-    description?: string | null
-    status: TaskStatus
-    dueDate?: Date | null
-    categoryId: string
-  }
-) {
+export async function createTask(userId: string, data: CreateTaskInput) {
   try {
+    // Validation first
+    validateTitle(data.title)
+    validateDescription(data.description)
+    validateDueDate(data.dueDate)
+
     const task = await prisma.task.create({
       data: {
         ...data,
         userId,
-        position: await getNextPosition(userId)
+        position: await getNextPosition(userId),
+        status: data.status || 'TODO',
+        categoryId: data.categoryId || await getDefaultCategoryId(userId)
       }
     })
-    console.log('Task created in DB:', task)
     return task
   } catch (error) {
     console.error('Error in createTask action:', error)
-    throw error
+    // Don't wrap ValidationError in generic error
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    // Only wrap unexpected errors
+    throw new Error('Failed to create task')
   }
 }
 
 // Get all tasks for specific user
 export async function getTasks(userId: string) {
-  return withErrorHandling(async () => {
+  try {
     return await prisma.task.findMany({
       where: { userId },
       orderBy: { position: 'asc' },
       include: { category: true }
     })
-  })
+  } catch (error) {
+    console.error('Error fetching tasks:', error)
+    throw new Error('Failed to fetch tasks')
+  }
 }
 
 // Get single task (with user verification)
 export async function getTask(userId: string, taskId: string) {
-  return withErrorHandling(async () => {
+  try {
     const task = await verifyTaskOwnership(userId, taskId)
     return task
-  })
+  } catch (error) {
+    console.error('Error fetching task:', error)
+    if (error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to fetch task')
+  }
 }
 
 // Update task title
 export async function updateTaskTitle(userId: string, taskId: string, title: string) {
-  return withErrorHandling(async () => {
+  try {
     validateTitle(title)
     await verifyTaskOwnership(userId, taskId)
 
@@ -210,12 +191,18 @@ export async function updateTaskTitle(userId: string, taskId: string, title: str
       where: { id: taskId },
       data: { title }
     })
-  })
+  } catch (error) {
+    console.error('Error updating task title:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to update task title')
+  }
 }
 
 // Update task description
 export async function updateTaskDescription(userId: string, taskId: string, description: string) {
-  return withErrorHandling(async () => {
+  try {
     validateDescription(description)
     await verifyTaskOwnership(userId, taskId)
 
@@ -223,43 +210,68 @@ export async function updateTaskDescription(userId: string, taskId: string, desc
       where: { id: taskId },
       data: { description }
     })
-  })
+  } catch (error) {
+    console.error('Error updating task description:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to update task description')
+  }
 }
 
 // Update task status
 export async function updateTaskStatus(userId: string, taskId: string, status: TaskStatus) {
-  return withErrorHandling(async () => {
+  try {
     await verifyTaskOwnership(userId, taskId)
-
+    validateStatus(status)
+    
     return await prisma.task.update({
       where: { id: taskId },
       data: { status }
     })
-  })
+  } catch (error) {
+    console.error('Error updating task status:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to update task status')
+  }
 }
 
 // Update task category
 export async function updateTaskCategory(userId: string, taskId: string, categoryId: string) {
-  return withErrorHandling(async () => {
+  try {
     await verifyTaskOwnership(userId, taskId)
-    await verifyCategoryOwnership(userId, categoryId)
+    await validateCategoryId(userId, categoryId)
 
     return await prisma.task.update({
       where: { id: taskId },
       data: { categoryId }
     })
-  })
+  } catch (error) {
+    console.error('Error updating task category:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to update task category')
+  }
 }
 
 // Delete task
 export async function deleteTask(userId: string, taskId: string) {
-  return withErrorHandling(async () => {
+  try {
     await verifyTaskOwnership(userId, taskId)
 
     return await prisma.task.delete({
       where: { id: taskId }
     })
-  })
+  } catch (error) {
+    console.error('Error deleting task:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to delete task')
+  }
 }
 
 // Combined update function for multiple fields
@@ -268,14 +280,19 @@ export async function updateTask(
   taskId: string,
   data: Partial<TaskFormData>
 ) {
-  return withErrorHandling(async () => {
+  try {
     // Validate partial input
     const validated = taskSchema.partial().parse(data)
     
     // Verify ownership
     await verifyTaskOwnership(userId, taskId)
 
-    // Update task
+    if (data.title) validateTitle(data.title)
+    if (data.description) validateDescription(data.description)
+    if (data.dueDate) validateDueDate(data.dueDate)
+    if (data.status) validateStatus(data.status)
+    if (data.categoryId) await validateCategoryId(userId, data.categoryId)
+
     return await prisma.task.update({
       where: { id: taskId },
       data: {
@@ -283,7 +300,13 @@ export async function updateTask(
         updatedAt: new Date()
       }
     })
-  })
+  } catch (error) {
+    console.error('Error updating task:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to update task')
+  }
 }
 
 // Add new move actions
@@ -296,78 +319,89 @@ export async function moveTask(
     categoryId?: string
   }
 ) {
-  return withErrorHandling(async () => {
-    console.log('moveTask called with:', { userId, taskId, data });
-    
-    await verifyTaskOwnership(userId, taskId);
-    
+  try {
+    await verifyTaskOwnership(userId, taskId)
+    if (data.categoryId) {
+      await validateCategoryId(userId, data.categoryId)
+    }
+
     return await prisma.$transaction(async (tx) => {
-      const POSITION_GAP = 1000;
+      const POSITION_GAP = 1000
       
       const columnTasks = await tx.task.findMany({
         where: { userId },
         orderBy: { position: 'asc' },
-      });
-      console.log('Found column tasks:', columnTasks);
+      })
 
-      let newPosition: number;
+      let newPosition: number
       
       if (!data.beforeId && !data.afterId) {
         // Moving to start
         newPosition = columnTasks[0]?.position 
           ? columnTasks[0].position - POSITION_GAP 
-          : 0;
+          : 0
       } else if (!data.beforeId) {
         // Moving before a task
-        const afterTask = columnTasks.find(t => t.id === data.afterId);
-        if (!afterTask) throw new Error('Reference task not found');
-        newPosition = afterTask.position - (POSITION_GAP / 2);
+        const afterTask = columnTasks.find(t => t.id === data.afterId)
+        if (!afterTask) throw new PositionError('Reference task not found')
+        newPosition = afterTask.position - (POSITION_GAP / 2)
       } else if (!data.afterId) {
         // Moving after a task
-        const beforeTask = columnTasks.find(t => t.id === data.beforeId);
-        if (!beforeTask) throw new Error('Reference task not found');
-        newPosition = beforeTask.position + (POSITION_GAP / 2);
+        const beforeTask = columnTasks.find(t => t.id === data.beforeId)
+        if (!beforeTask) throw new PositionError('Reference task not found')
+        newPosition = beforeTask.position + (POSITION_GAP / 2)
       } else {
         // Moving between two tasks
-        const beforeTask = columnTasks.find(t => t.id === data.beforeId);
-        const afterTask = columnTasks.find(t => t.id === data.afterId);
-        if (!beforeTask || !afterTask) throw new Error('Reference task not found');
+        const beforeTask = columnTasks.find(t => t.id === data.beforeId)
+        const afterTask = columnTasks.find(t => t.id === data.afterId)
+        if (!beforeTask || !afterTask) throw new PositionError('Reference task not found')
         
-        const positionDiff = afterTask.position - beforeTask.position;
+        const positionDiff = afterTask.position - beforeTask.position
         if (positionDiff < 1) {
           // Rebalance if positions are too close
-          await rebalancePositions(tx, columnTasks);
+          await rebalancePositions(tx, columnTasks)
           // Recalculate position after rebalancing
-          newPosition = (beforeTask.position + afterTask.position) / 2;
+          newPosition = (beforeTask.position + afterTask.position) / 2
         } else {
-          newPosition = beforeTask.position + (positionDiff / 2);
+          newPosition = beforeTask.position + (positionDiff / 2)
         }
       }
 
-      console.log('Calculated new position:', newPosition);
-
-      const result = await tx.task.update({
+      return await tx.task.update({
         where: { id: taskId },
-        data: { position: newPosition }
-      });
-      console.log('Task updated with result:', result);
-      return result;
-    });
-  });
+        data: { 
+          position: newPosition,
+          ...(data.categoryId && { categoryId: data.categoryId })
+        }
+      })
+    })
+
+  } catch (error) {
+    console.error('Error moving task:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError || error instanceof PositionError) {
+      throw error
+    }
+    throw new Error('Failed to move task')
+  }
 }
 
 // Helper function to rebalance positions
 async function rebalancePositions(tx: any, tasks: Task[]) {
-  const POSITION_GAP = 1000;
-  
-  return await Promise.all(
-    tasks.map((task, index) => 
-      tx.task.update({
-        where: { id: task.id },
-        data: { position: (index + 1) * POSITION_GAP }
-      })
+  try {
+    const POSITION_GAP = 1000
+    
+    return await Promise.all(
+      tasks.map((task, index) => 
+        tx.task.update({
+          where: { id: task.id },
+          data: { position: (index + 1) * POSITION_GAP }
+        })
+      )
     )
-  );
+  } catch (error) {
+    console.error('Error rebalancing positions:', error)
+    throw new PositionError('Failed to rebalance positions')
+  }
 }
 
 export async function moveCategory(
@@ -378,24 +412,30 @@ export async function moveCategory(
     afterId?: string
   }
 ) {
-  return withErrorHandling(async () => {
+  try {
     await verifyCategoryOwnership(userId, categoryId)
 
-    return prisma.category.reorder({
+    return await prisma.category.reorder({
       id: categoryId,
       beforeId: data.beforeId,
       afterId: data.afterId
     })
-  })
+  } catch (error) {
+    console.error('Error moving category:', error)
+    if (error instanceof AuthorizationError || error instanceof PositionError) {
+      throw error
+    }
+    throw new Error('Failed to move category')
+  }
 }
 
-// Create (as suggested before)
+// Create category
 export async function createCategory(userId: string, data: {
   name: string
   isDefault?: boolean
 }) {
-  return withErrorHandling(async () => {
-    // Add validation for userId
+  try {
+    // Validate userId
     if (!userId) {
       throw new ValidationError('User ID is required')
     }
@@ -428,107 +468,145 @@ export async function createCategory(userId: string, data: {
         userId
       }
     })
-  })
+  } catch (error) {
+    console.error('Error creating category:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('Failed to create category')
+  }
 }
 
-// Read (missing)
+// Get categories
 export async function getCategories(userId: string) {
-  return withErrorHandling(async () => {
+  try {
+    // Update any existing default categories
+    await updateDefaultCategoryName(userId)
+    
     return await prisma.category.findMany({
       where: { userId },
       orderBy: { position: 'asc' },
       include: { tasks: true }
     })
-  })
+  } catch (error) {
+    console.error('Error fetching categories:', error)
+    if (error instanceof ValidationError) {
+      throw error
+    }
+    throw new Error('Failed to fetch categories')
+  }
 }
 
-// Update (missing)
-export async function updateCategory(userId: string, categoryId: string, data: {
-  name?: string
-  isDefault?: boolean
-}) {
-  return withErrorHandling(async () => {
-    if (data.name && (!data.name?.trim() || data.name.length > 255)) {
-      throw new ValidationError('Category name must be between 1 and 255 characters')
+// Get tasks by category
+export async function getTasksByCategory(userId: string, categoryId: string) {
+  try {
+    if (!userId) {
+      throw new ValidationError('User ID is required')
     }
+    if (!categoryId) {
+      throw new ValidationError('Category ID is required')
+    }
+
+    // Verify category ownership
     await verifyCategoryOwnership(userId, categoryId)
 
-    return await prisma.category.update({
-      where: { id: categoryId },
-      data
+    return await prisma.task.findMany({
+      where: {
+        userId,
+        categoryId
+      },
+      orderBy: { position: 'asc' }
     })
-  })
+  } catch (error) {
+    console.error('Error fetching tasks by category:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
+      throw error
+    }
+    throw new Error('An unexpected error occurred')
+  }
 }
 
-// Delete (missing)
+async function getNextPosition(userId: string): Promise<number> {
+  try {
+    if (!userId) {
+      throw new ValidationError('User ID is required')
+    }
+
+    const lastTask = await prisma.task.findFirst({
+      where: { userId },
+      orderBy: { position: 'desc' }
+    })
+    return (lastTask?.position ?? 0) + 1000
+  } catch (error) {
+    console.error('Error getting next position:', error)
+    if (error instanceof ValidationError) {
+      throw error
+    }
+    throw new Error('Failed to get next position')
+  }
+}
+
+// Add a new type for delete mode
+type DeleteMode = 'delete_all' | 'move'
+
 export async function deleteCategory(
   userId: string, 
-  categoryId: string,
+  categoryId: string, 
+  mode: DeleteMode,
   targetCategoryId?: string
 ) {
-  return withErrorHandling(async () => {
-    console.log('Deleting category:', { userId, categoryId, targetCategoryId })
-    
+  try {
+    // Verify ownership and check if default
     const category = await verifyCategoryOwnership(userId, categoryId)
-    
-    // Don't allow deleting the default category
     if (category.isDefault) {
       throw new ValidationError('Cannot delete default category')
     }
 
-    // Get tasks in this category
-    const tasksInCategory = await prisma.task.findMany({
-      where: { categoryId }
-    })
+    if (mode === 'move' && !targetCategoryId) {
+      throw new ValidationError('Target category is required when moving tasks')
+    }
 
-    if (tasksInCategory.length > 0) {
-      // If there are tasks but no target category specified, throw error
-      if (!targetCategoryId) {
-        throw new ValidationError(
-          'Cannot delete category with tasks without specifying a target category'
-        )
+    if (mode === 'delete_all') {
+      // Delete all tasks and the category
+      await prisma.task.deleteMany({
+        where: { categoryId, userId }
+      })
+      await prisma.category.delete({
+        where: { id: categoryId }
+      })
+    } else {
+      // Verify target category ownership
+      if (targetCategoryId) {
+        await verifyCategoryOwnership(userId, targetCategoryId)
       }
-
-      // Verify target category exists and belongs to user
-      await verifyCategoryOwnership(userId, targetCategoryId)
-
-      // Move all tasks to target category
+      // Move tasks to target category then delete original
       await prisma.task.updateMany({
-        where: { categoryId },
+        where: { categoryId, userId },
         data: { categoryId: targetCategoryId }
       })
+      await prisma.category.delete({
+        where: { id: categoryId }
+      })
     }
-
-    // Now safe to delete the category
-    return await prisma.category.delete({
-      where: { id: categoryId }
-    })
-  })
-}
-
-// Add a helper function to get tasks in a category
-export async function getTasksByCategory(userId: string, categoryId: string) {
-  return withErrorHandling(async () => {
-    try {
-      await verifyCategoryOwnership(userId, categoryId)
-    } catch (error) {
-      // If category not found, return empty array instead of throwing
-      if (error instanceof AuthorizationError) {
-        return []
-      }
+  } catch (error) {
+    console.error('Error deleting category:', error)
+    if (error instanceof ValidationError || error instanceof AuthorizationError) {
       throw error
     }
-    
-    return prisma.task.findMany({
-      where: { categoryId }
-    })
-  })
+    throw new Error('Failed to delete category')
+  }
 }
 
-async function getNextPosition(userId: string): Promise<number> {
-  const lastTask = await prisma.task.findFirst({
-    where: { userId },
-    orderBy: { position: 'desc' }
+// One-time update for existing default categories
+export async function updateDefaultCategoryName(userId: string) {
+  await prisma.category.updateMany({
+    where: { 
+      userId,
+      isDefault: true,
+      name: 'Default'  // Only update if it's still named "Default"
+    },
+    data: {
+      name: 'unassigned'
+    }
   })
-  return (lastTask?.position ?? 0) + 1000
 }
