@@ -56,4 +56,15 @@ jest.mock('next/navigation', () => ({
       get: jest.fn(),
     }
   },
-})) 
+}))
+
+// Mock OpenAI for all tests
+jest.mock('openai', () => {
+  return jest.fn(() => ({
+    chat: {
+      completions: {
+        create: jest.fn()
+      }
+    }
+  }))
+}) 
