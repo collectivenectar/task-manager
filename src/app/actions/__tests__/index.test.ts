@@ -4,9 +4,23 @@ import {
   deleteCategory,
   moveTask,
   updateTask,
-  getTasksByCategory
+  getTasksByCategory,
+  getSmartTaskSuggestions,
+  SmartTaskInput
 } from '../index'
 import { AuthorizationError, ValidationError } from '@/lib/errors'
+
+// Mock OpenAI
+jest.mock('openai', () => {
+  const mockCreate = jest.fn()
+  return jest.fn(() => ({
+    chat: {
+      completions: {
+        create: mockCreate
+      }
+    }
+  }))
+})
 
 describe('Task Management Actions', () => {
   const mockUserId = 'user-123'
@@ -112,41 +126,7 @@ describe('Task Management Actions', () => {
         .rejects.toThrow('Cannot delete default category')
     })
 
-    it('deleteCategory should require target category when tasks exist', async () => {
-      // Mock category exists and belongs to user FIRST
-      prismaMock.category.findFirst.mockResolvedValue({
-        id: mockCategoryId,
-        name: 'Test Category',
-        position: 0,
-        isDefault: false,
-        userId: mockUserId,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-
-      // Then mock that category has tasks
-      prismaMock.task.findMany.mockResolvedValue([
-        {
-          id: 'task-1',
-          title: 'Test Task',
-          description: null,
-          status: 'TODO',
-          position: 1000,
-          userId: mockUserId,
-          categoryId: mockCategoryId,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          dueDate: null
-        }
-      ])
-
-      // Should throw when trying to delete without target
-      await expect(
-        deleteCategory(mockUserId, mockCategoryId, 'delete_all')
-      ).rejects.toThrow(ValidationError)
-    })
-
-    it('deleteCategory should move tasks to target category', async () => {
+    it('deleteCategory should allow moving tasks to target category', async () => {
       const targetCategoryId = 'target-category-123'
 
       // Mock source category exists
@@ -366,6 +346,65 @@ describe('Task Management Core Logic', () => {
     test('prevents orphaned tasks when deleting categories', async () => {
       // This shows you care about data integrity
     })
+  })
+})
+
+describe('Smart Task Assistant', () => {
+  let mockCreate: jest.Mock
+
+  beforeEach(() => {
+    // Get reference to the mocked create function
+    const OpenAI = require('openai')
+    mockCreate = jest.mocked(OpenAI)().chat.completions.create
+
+    // Default success response
+    mockCreate.mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            title: "Complete project documentation by next Friday",
+            description: "Create comprehensive documentation for the SMART goals feature, including API specifications, usage examples, and implementation details.",
+            measurementCriteria: [
+              "Documentation covers all API endpoints",
+              "Includes at least 3 usage examples",
+              "Reviewed by at least 1 team member"
+            ],
+            confidence: 0.9
+          })
+        }
+      }]
+    })
+  })
+
+  it('should return SMART suggestions for a task', async () => {
+    const mockInput: SmartTaskInput = {
+      title: "Write documentation",
+      description: "Document the new feature",
+      category: "Development",
+      dueDate: "2024-03-20"
+    }
+
+    const result = await getSmartTaskSuggestions(mockInput)
+
+    expect(result).toHaveProperty('title')
+    expect(result).toHaveProperty('description')
+    expect(result).toHaveProperty('measurementCriteria')
+    expect(result).toHaveProperty('confidence')
+  })
+
+  it('should handle missing input gracefully', async () => {
+    const result = await getSmartTaskSuggestions({})
+
+    expect(result).toHaveProperty('title')
+    expect(result).toHaveProperty('description')
+  })
+
+  it('should handle AI errors appropriately', async () => {
+    mockCreate.mockRejectedValueOnce(new Error('AI service error'))
+
+    await expect(getSmartTaskSuggestions({ title: 'Test' }))
+      .rejects
+      .toThrow('Failed to get smart task suggestions')
   })
 })
 

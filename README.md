@@ -55,3 +55,64 @@ A modern task management application built with Next.js, Prisma, and TypeScript.
 - Chose PostgreSQL for robust ordering capabilities
 - Implemented categories as a required relationship
 - Optimized for mobile-first development
+
+## AI-Enhanced Task Management (WIP on 'smart-tasks' branch)
+
+This feature branch explores the integration of AI to enhance task management workflows, focusing on helping users create more effective and actionable tasks.
+
+### Current Implementation: SMART Task Assistant
+
+The SMART Task Assistant helps users create better-defined tasks by:
+- Converting vague task ideas into specific, measurable objectives
+- Breaking down complex tasks into manageable steps
+- Suggesting appropriate categories based on task context
+- Providing clear success criteria for task completion
+
+Key technical features:
+- Server-side OpenAI integration with proper error handling
+- Atomic batch task creation using Prisma transactions
+- Real-time UI updates with optimistic rendering
+- Contextual category suggestions based on existing user data
+
+### Future Development Roadmap
+
+1. **Enhanced Task Customization**
+   - Inline editing of AI suggestions
+   - Granular control over subtask creation
+   - Custom success criteria definition
+
+2. **Hierarchical Task Management**
+   - Native subtask support with progress tracking
+   - Task dependencies and workflows
+   - Milestone tracking for complex projects
+
+3. **AI-Driven Personal Optimization**
+   - User behavior analysis for personalized suggestions
+   - Completion rate optimization
+   - Smart notifications based on productivity patterns
+   - Task prioritization recommendations
+
+### Technical Improvements Roadmap
+
+1. **Backend Performance**
+   - Add rate limiting for AI requests
+   - Optimize database queries with proper indexing
+   - Add request queue for batch operations
+   - Implement background job processing for AI tasks
+
+2. **Frontend Optimization**
+   - Add client-side caching with SWR/React Query
+   - Add progressive loading for task details
+   - Implement service worker for offline support
+   - Add debouncing for real-time updates
+
+3. **Stability & Monitoring**
+   - Implement automated testing for AI responses
+   - Add fallback strategies for AI service outages
+
+4. **Security Enhancements**
+   - Add rate limiting per user
+   - Implement input sanitization for AI prompts
+   - Implement content filtering for AI responses
+
+This implementation serves as a foundation for exploring how AI can enhance productivity tools by making them more intelligent and personalized while maintaining user agency and control.

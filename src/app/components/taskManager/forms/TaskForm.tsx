@@ -3,10 +3,13 @@ import { Category, Task, TaskStatus } from '@prisma/client'
 import DeleteConfirmationModal from '@/app/components/taskManager/modals/DeleteConfirmationModal'
 import DeleteCategoryModal from '../modals/DeleteCategoryModal'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getTasksByCategory, deleteCategory } from '@/app/actions'
+import { getTasksByCategory, deleteCategory, createTaskBatch } from '@/app/actions'
 import { TrashIcon } from '@heroicons/react/24/outline'
 import { alerts } from '@/lib/utils/alerts'
 import { ValidationError } from '@/lib/errors'
+import { SmartTaskModal } from '../modals/SmartTaskModal'
+import { getSmartTaskSuggestions, SmartTaskResponse } from '@/app/actions'
+import { TaskFormData } from '@/lib/schemas/task'
 
 interface TaskFormProps {
   onSubmit: (data: {
@@ -34,9 +37,15 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     throw new Error('Default category is required')
   }
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    title: string
+    description: string | null
+    status: TaskStatus
+    dueDate: Date | null
+    categoryId: string
+  }>({
     title: initialData?.title || '',
-    description: initialData?.description || '',
+    description: initialData?.description ?? null,
     status: initialData?.status || 'TODO',
     dueDate: initialData?.dueDate || null,
     categoryId: initialData?.categoryId || defaultCategory.id
@@ -46,6 +55,10 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
   const [newCategoryName, setNewCategoryName] = useState('')
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null)
+  const [isSmartModalOpen, setIsSmartModalOpen] = useState(false)
+  const [isGettingSuggestions, setIsGettingSuggestions] = useState(false)
+  const [suggestion, setSuggestion] = useState<SmartTaskResponse | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: affectedTasks = [] } = useQuery({
     queryKey: ['tasks', 'category', categoryToDelete?.id],
@@ -172,11 +185,103 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     }
   }
 
+  const handleSmartSuggestion = async (additionalContext: string, shouldBreakdown: boolean) => {
+    try {
+      const categoryNames = categories
+        .filter(c => !c.isDefault)
+        .map(c => c.name)
+
+      const newSuggestion = await getSmartTaskSuggestions({
+        title: formData.title,
+        description: formData.description || '',
+        category: categories.find(c => c.id === formData.categoryId)?.name,
+        dueDate: formData.dueDate?.toISOString(),
+        additionalContext,
+        categories: categoryNames,
+        shouldBreakdown
+      })
+      setSuggestion(newSuggestion)
+      return newSuggestion
+    } catch (error) {
+      console.error('Failed to get suggestions:', error)
+      alerts.error('Failed to get suggestions')
+      throw error
+    }
+  }
+
+  const handleSmartConfirm = async (data: TaskFormData, createMultiple: boolean) => {
+    setIsSubmitting(true)
+    try {
+      let targetCategoryId = data.categoryId
+      if (suggestion?.suggestedCategory) {
+        const existingCategory = categories.find(c => 
+          c.name.toLowerCase() === suggestion.suggestedCategory?.toLowerCase()
+        )
+        
+        if (!existingCategory) {
+          const newCategory = await onCategoryCreate({ 
+            name: suggestion.suggestedCategory 
+          })
+          targetCategoryId = newCategory.id
+        } else {
+          targetCategoryId = existingCategory.id
+        }
+      }
+
+      if (createMultiple && suggestion?.subtasks) {
+        const totalTasks = suggestion.subtasks.length + 1
+        alerts.info(`Creating ${totalTasks} tasks...`)
+
+        await createTaskBatch(userId, {
+          mainTask: {
+            ...data,
+            categoryId: targetCategoryId
+          },
+          subtasks: suggestion.subtasks.map(task => ({
+            title: task.title,
+            description: task.description,
+            status: 'TODO',
+            categoryId: targetCategoryId
+          }))
+        })
+
+        alerts.success(`Successfully created ${totalTasks} tasks`)
+        
+        await queryClient.invalidateQueries({ queryKey: ['tasks'] })
+        onCancel()
+      } else {
+        await onSubmit({
+          ...data,
+          categoryId: targetCategoryId
+        })
+        onCancel()
+      }
+
+    } catch (error) {
+      console.error('Failed to create tasks:', error)
+      alerts.error('Failed to create tasks')
+    } finally {
+      setIsSubmitting(false)
+      setIsSmartModalOpen(false)
+    }
+  }
+
   return (
     <>
       <form onSubmit={handleSubmit} className="space-y-6" data-testid="task-form">
         <div>
-          <label htmlFor="title">Task title</label>
+          <div className="flex justify-between items-center mb-2">
+            <label htmlFor="title" className="text-sm font-medium text-primary-muted">
+              Task title
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsSmartModalOpen(true)}
+              className="text-base text-accent hover:text-accent-hover transition-colors"
+            >
+              ✨ Need help? Try AI suggestions
+            </button>
+          </div>
           <input
             id="title"
             name="title"
@@ -203,7 +308,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
             id="description"
             name="description"
             data-testid="task-description-input"
-            value={formData.description}
+            value={formData.description || ''}
             onChange={handleChange}
             rows={3}
             className={`
@@ -415,6 +520,14 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
           onConfirm={handleCategoryDelete}
         />
       )}
+
+      <SmartTaskModal
+        isOpen={isSmartModalOpen}
+        onClose={() => setIsSmartModalOpen(false)}
+        initialData={formData}
+        onConfirm={handleSmartConfirm}
+        onRetry={handleSmartSuggestion}
+      />
     </>
   )
 }

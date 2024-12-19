@@ -20,6 +20,12 @@ import { prisma } from '@/lib/db'
 import { ValidationError, AuthorizationError, PositionError } from '@/lib/errors'
 import { TaskFormData, taskSchema } from '@/lib/schemas/task'
 import { DeleteMode } from '@/lib/types'
+import OpenAI from 'openai'
+import { SYSTEM_PROMPT, constructPrompt } from '@/lib/prompts/smart-task'
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+})
 
 interface CreateTaskInput {
   title: string;
@@ -808,4 +814,108 @@ export async function updateDefaultCategoryName(userId: string) {
       name: 'unassigned'
     }
   })
+}
+
+export interface SmartTaskInput {
+  title?: string
+  description?: string
+  category?: string
+  dueDate?: string
+  additionalContext?: string
+  categories?: string[]
+  shouldBreakdown?: boolean
+}
+
+export interface SmartTaskResponse {
+  title: string
+  description: string
+  suggestedDueDate?: string
+  measurementCriteria?: string[]
+  suggestedCategory?: string
+  subtasks?: {
+    title: string
+    description: string
+    estimatedDuration: string
+  }[]
+  confidence: number
+}
+
+export async function getSmartTaskSuggestions(input: SmartTaskInput): Promise<SmartTaskResponse> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT
+        },
+        {
+          role: "user",
+          content: constructPrompt(input)
+        }
+      ]
+    })
+
+    const content = completion.choices[0].message?.content
+    if (!content) {
+      throw new Error('No response content from AI')
+    }
+
+    return JSON.parse(content) as SmartTaskResponse
+  } catch (error) {
+    console.error('Smart Task Assistant Error:', error)
+    throw new Error('Failed to get smart task suggestions')
+  }
+}
+
+interface BatchTaskCreation {
+  mainTask: {
+    title: string
+    description?: string | null
+    status: TaskStatus
+    dueDate?: Date | null
+    categoryId: string
+  }
+  subtasks: {
+    title: string
+    description: string
+    status: TaskStatus
+    categoryId: string
+    dueDate?: Date | null
+  }[]
+}
+
+export async function createTaskBatch(userId: string, { mainTask, subtasks }: BatchTaskCreation): Promise<Task[]> {
+  try {
+    const createdTasks = await prisma.$transaction(async (tx) => {
+      // Create main task
+      const main = await tx.task.create({
+        data: {
+          ...mainTask,
+          userId,
+          position: await getNextPosition(mainTask.categoryId)
+        }
+      })
+
+      // Create all subtasks
+      const created = await Promise.all(
+        subtasks.map(async (task) => {
+          return tx.task.create({
+            data: {
+              ...task,
+              userId,
+              position: await getNextPosition(task.categoryId)
+            }
+          })
+        })
+      )
+
+      return [main, ...created]
+    })
+
+    return createdTasks
+  } catch (error) {
+    console.error('Failed to create task batch:', error)
+    throw new Error('Failed to create tasks')
+  }
 }

@@ -62,7 +62,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
         >
           <Dialog.Title 
             data-testid="modal-title"
-            className="text-lg font-medium text-primary mb-4"
+            className="text-xl font-medium text-primary mb-4"
           >
             {title}
           </Dialog.Title>
