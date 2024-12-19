@@ -1,7 +1,7 @@
 'use client'
 
 import { Task, TaskStatus, Category } from '@prisma/client'
-import { useState, useRef } from 'react'
+import { useState, useRef, memo } from 'react'
 import { ClockIcon, ChevronUpDownIcon } from '@heroicons/react/24/outline'
 
 interface TaskCardProps {
@@ -160,4 +160,8 @@ const TaskCard = ({ task, isDragging, dragHandleProps, userId, onEdit, onStatusC
   )
 }
 
-export default TaskCard
+export default memo(TaskCard, (prev, next) => {
+  return prev.task.id === next.task.id && 
+         prev.task.updatedAt === next.task.updatedAt &&
+         prev.isDragging === next.isDragging
+})

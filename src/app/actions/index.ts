@@ -19,6 +19,7 @@ import { TaskStatus, Task } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { ValidationError, AuthorizationError, PositionError } from '@/lib/errors'
 import { TaskFormData, taskSchema } from '@/lib/schemas/task'
+import { DeleteMode } from '@/lib/types'
 
 interface CreateTaskInput {
   title: string;
@@ -718,9 +719,6 @@ async function getNextPosition(userId: string): Promise<number> {
     throw new Error('Failed to get next position')
   }
 }
-
-// Add a new type for delete mode
-type DeleteMode = 'delete_all' | 'move'
 
 /**
  * Deletes a category and handles its tasks

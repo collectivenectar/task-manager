@@ -89,7 +89,7 @@ const TaskColumn = ({ tasks, onReorder, status, userId, categories, onEditTask, 
   return (
     <>
       <div className={`
-        flex flex-col h-full p-4 
+        flex flex-col h-[calc(100vh-12rem)] p-4 
         ${status === 'ALL' 
           ? 'opacity-90 bg-surface/20 rounded-lg'
           : 'opacity-90'
@@ -172,7 +172,7 @@ const TaskColumn = ({ tasks, onReorder, status, userId, categories, onEditTask, 
               {...provided.droppableProps}
               className="flex-1 overflow-y-auto min-h-[100px] space-y-3 
                        scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent
-                       px-2 w-full
+                       px-2 w-full max-h-full
                        md:mx-auto md:max-w-2xl lg:max-w-3xl"
             >
               {sortedTasks.map((task, index) => (

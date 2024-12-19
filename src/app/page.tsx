@@ -1,6 +1,7 @@
 import TaskBoard from '@/app/components/taskManager/board/TaskBoard'
 import { getTasks } from '@/app/actions'
 import { getOrCreateDBUser } from './actions'
+import { ErrorBoundaryWrapper } from '@/app/components/common/ErrorBoundaryWrapper'
 
 export default async function Home() {
   const user = await getOrCreateDBUser()
@@ -9,8 +10,8 @@ export default async function Home() {
   const initialTasks = await getTasks(user.id)
   
   return (
-    <main className="h-screen p-4">
+    <ErrorBoundaryWrapper>
       <TaskBoard initialTasks={initialTasks} userId={user.id} />
-    </main>
+    </ErrorBoundaryWrapper>
   )
 }
