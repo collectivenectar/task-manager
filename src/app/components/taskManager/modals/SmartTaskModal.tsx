@@ -87,14 +87,12 @@ export function SmartTaskModal({
   const [isLoading, setIsLoading] = useState(false)
   const [suggestion, setSuggestion] = useState<SmartTaskResponse | null>(null)
   const [shouldBreakdown, setShouldBreakdown] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const resetState = () => {
     setAdditionalContext('')
     setSuggestion(null)
     setShouldBreakdown(false)
     setIsLoading(false)
-    setIsSubmitting(false)
   }
 
   const handleRetry = async () => {
@@ -103,7 +101,7 @@ export function SmartTaskModal({
       const newSuggestion = await onRetry(additionalContext, shouldBreakdown)
       setSuggestion(newSuggestion)
     } catch (error) {
-      // Error already handled in parent
+      void error;
     } finally {
       setIsLoading(false)
     }
@@ -242,6 +240,7 @@ export function SmartTaskModal({
         </div>
       )
     } catch (error) {
+      void error;
       return (
         <div className="text-red-400 p-4">
           Failed to display suggestion. Please try again.

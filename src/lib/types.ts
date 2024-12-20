@@ -1,4 +1,4 @@
-import { Task, Category, TaskStatus } from '@prisma/client'
+import { Task, Category } from '@prisma/client'
 import { UseMutationResult } from '@tanstack/react-query'
 
 export type DeleteMode = 'delete_all' | 'move'

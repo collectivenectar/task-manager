@@ -90,7 +90,8 @@ describe('Task Management Actions', () => {
       }
 
       prismaMock.task.findFirst.mockResolvedValue(null)
-      prismaMock.task.create.mockResolvedValue(mockTask as any)
+      // @ts-expect-error prisma create type
+      prismaMock.task.create.mockResolvedValue(mockTask)
 
       const result = await createTask(mockUserId, {
         title: 'Test Task',
@@ -196,7 +197,8 @@ describe('Task Management Actions', () => {
           update: jest.fn()
         }
       }
-      prismaMock.$transaction.mockImplementation((callback: any) => callback(mockTransaction))
+      // @ts-expect-error prisma transaction client type
+      prismaMock.$transaction.mockImplementation((callback) => callback(mockTransaction))
 
       // Mock task ownership verification
       prismaMock.task.findFirst.mockResolvedValue({
@@ -267,8 +269,10 @@ describe('Task Management Actions', () => {
       })
 
       prismaMock.task.findMany.mockResolvedValue([
-        { id: 'task-1', position: 1000 } as any,
-        { id: 'task-2', position: 1000.1 } as any
+        // @ts-expect-error prisma findMany type partial
+        { id: 'task-1', position: 1000 },
+        // @ts-expect-error prisma findMany type partial
+        { id: 'task-2', position: 1000.1 }
       ])
 
       await moveTask(mockUserId, mockTaskId, {
@@ -291,7 +295,8 @@ describe('Task Management Actions', () => {
 
     test('should handle concurrent updates gracefully', async () => {
       // Simulate a race condition where task is deleted while updating
-      prismaMock.task.findFirst.mockResolvedValue({ id: mockTaskId } as any)
+      // @ts-expect-error prisma findFirst type partial
+      prismaMock.task.findFirst.mockResolvedValue({ id: mockTaskId })
       prismaMock.task.update.mockRejectedValue(new Error('Record not found'))
 
       await expect(updateTask(mockUserId, mockTaskId, { title: 'New Title' }))
@@ -354,7 +359,7 @@ describe('Smart Task Assistant', () => {
 
   beforeEach(() => {
     // Get reference to the mocked create function
-    const OpenAI = require('openai')
+    const OpenAI = jest.requireMock('openai')
     mockCreate = jest.mocked(OpenAI)().chat.completions.create
 
     // Default success response

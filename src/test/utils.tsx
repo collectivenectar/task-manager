@@ -18,6 +18,7 @@ export function renderWithProviders(
   ui: ReactNode,
   options: RenderWithProvidersOptions = {}
 ): RenderResult {
+  void options;
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {

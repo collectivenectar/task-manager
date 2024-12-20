@@ -1,7 +1,6 @@
 import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import TaskBoard from '../TaskBoard'
-import { alerts } from '@/lib/utils/alerts'
 import * as actions from '@/app/actions'
 
 jest.mock('@/lib/utils/alerts', () => ({

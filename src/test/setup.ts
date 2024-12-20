@@ -32,6 +32,7 @@ global.DOMRect = class DOMRect {
   x = 0
   y = 0
   static fromRect(other?: DOMRectInit): DOMRect {
+    void other;
     return new DOMRect()
   }
   toJSON() {

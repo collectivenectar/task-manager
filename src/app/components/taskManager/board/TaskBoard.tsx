@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import { Task, TaskStatus } from '@prisma/client'
 import { DragDropContext, DropResult } from '@hello-pangea/dnd'
 import { Popover } from '@headlessui/react'
-import { MagnifyingGlassIcon, FunnelIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { MagnifyingGlassIcon, FunnelIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { toast } from 'react-toastify'
 
 import TaskColumn from './TaskColumn'
@@ -72,7 +72,7 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
     userId, 
     initialTasks 
   })
-
+  void error;
   // 5. All mutations
   const {
     reorderMutation,
@@ -92,14 +92,6 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
   if (!hasDefaultCategory) {
     return <div>Error: No default category found</div>
   }
-
-  // Rest of the component logic...
-  const closePopover = () => {
-    filterButtonRef.current?.click()
-  }
-
-  // Count active filters for the indicator
-  const activeFiltersCount = activeCategories.size + (activeStatus !== 'ALL' ? 1 : 0)
 
   // Helper to close the popover
   const handleReorder = (taskId: string, beforeId?: string, afterId?: string) => {
@@ -261,7 +253,7 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
           `}>
             {searchQuery && (
               <div className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg bg-white/10 text-primary">
-                <span>"{searchQuery}"</span>
+                <span>&quot;{searchQuery}&quot;</span>
                 <button
                   onClick={() => setSearchQuery('')}
                   className="text-primary-muted hover:text-primary"
@@ -320,7 +312,7 @@ const TaskBoard = ({ initialTasks, userId }: TaskBoardProps) => {
             <div className="flex bg-surface/50 rounded-lg border border-white/10 p-0.5">
               {taskStatuses
                 .filter(status => status.isActionable)
-                .map((status, index, array) => (
+                .map((status) => (
                   <button
                     key={status.id}
                     onClick={() => setActiveStatus(status.id)}

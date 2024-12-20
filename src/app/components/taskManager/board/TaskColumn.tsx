@@ -38,7 +38,7 @@ const getDroppableId = (status: TaskStatus | 'ALL'): string => {
 
 const isAllStatus = (status: TaskStatus | 'ALL'): status is 'ALL' => status === 'ALL'
 
-const TaskColumn = ({ tasks, onReorder, status, userId, categories, onEditTask, onStatusChange }: TaskColumnProps) => {
+const TaskColumn = ({ tasks, status, userId, categories, onEditTask, onStatusChange }: TaskColumnProps) => {
   const [isCreating, setIsCreating] = useState(false)
   const [sortBy, setSortBy] = useState<'dueDate' | 'createdAt' | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')

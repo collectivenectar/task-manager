@@ -22,23 +22,15 @@ const DeleteCategoryModal = ({
   console.log('DeleteCategoryModal rendered with tasks:', affectedTasks)
   
   const [targetCategoryId, setTargetCategoryId] = useState<string>('')
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
+ 
   const handleConfirm = async (action: 'delete_all' | 'move') => {
     if (action === 'move' && !targetCategoryId) return
-    
-    setIsDeleting(true)
-    setError(null)
     
     try {
       await onConfirm(action, targetCategoryId)
       onClose()
     } catch (error) {
       console.error('Failed to delete category:', error)
-      setError(error instanceof Error ? error.message : 'Failed to delete category')
-    } finally {
-      setIsDeleting(false)
     }
   }
 
@@ -54,7 +46,7 @@ const DeleteCategoryModal = ({
     >
       <div className="space-y-4">
         <p className="text-primary-muted">
-          Are you sure you want to delete the category "{category.name}"?
+          Are you sure you want to delete the category &quot;{category.name}&quot;?
         </p>
         
         {affectedTasks.length > 0 && (

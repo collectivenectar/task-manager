@@ -3,13 +3,14 @@
 import { Task, TaskStatus, Category } from '@prisma/client'
 import { useState, useRef, memo } from 'react'
 import { ClockIcon, ChevronUpDownIcon } from '@heroicons/react/24/outline'
+import { DraggableProvidedDragHandleProps } from '@hello-pangea/dnd'
 
 interface TaskCardProps {
   task: Task & {
     category: Category | null
   }
   isDragging?: boolean
-  dragHandleProps?: any
+  dragHandleProps?: DraggableProvidedDragHandleProps | null
   userId: string
   onEdit: (task: Task) => void
   onStatusChange: (taskId: string, newStatus: TaskStatus) => Promise<void>
@@ -22,7 +23,7 @@ const getNextStatus = (currentStatus: TaskStatus): TaskStatus => {
   return statusOrder[(currentIndex + 1) % statusOrder.length]
 }
 
-const TaskCard = ({ task, isDragging, dragHandleProps, userId, onEdit, onStatusChange, isAllView }: TaskCardProps) => {
+const TaskCard = ({ task, isDragging, dragHandleProps, onEdit, onStatusChange, isAllView }: TaskCardProps) => {
   const [isAnimating, setIsAnimating] = useState(false)
   const [pendingStatus, setPendingStatus] = useState<TaskStatus>(task.status)
   const timerRef = useRef<NodeJS.Timeout | undefined>(undefined)

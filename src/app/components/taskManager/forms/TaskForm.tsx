@@ -56,9 +56,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null)
   const [isSmartModalOpen, setIsSmartModalOpen] = useState(false)
-  const [isGettingSuggestions, setIsGettingSuggestions] = useState(false)
   const [suggestion, setSuggestion] = useState<SmartTaskResponse | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const { data: affectedTasks = [] } = useQuery({
     queryKey: ['tasks', 'category', categoryToDelete?.id],
@@ -93,6 +91,7 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
     if (errors[name]) {
       setErrors(prev => {
         const { [name]: _, ...rest } = prev
+        void _;
         return rest
       })
     }
@@ -210,7 +209,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
   }
 
   const handleSmartConfirm = async (data: TaskFormData, createMultiple: boolean) => {
-    setIsSubmitting(true)
     try {
       let targetCategoryId = data.categoryId
       if (suggestion?.suggestedCategory) {
@@ -261,7 +259,6 @@ const TaskForm: React.FC<TaskFormProps> = ({ onSubmit, onCancel, onDelete, onCat
       console.error('Failed to create tasks:', error)
       alerts.error('Failed to create tasks')
     } finally {
-      setIsSubmitting(false)
       setIsSmartModalOpen(false)
     }
   }

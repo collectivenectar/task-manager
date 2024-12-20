@@ -532,7 +532,8 @@ export async function moveTask(
  * @throws {PositionError} If rebalancing fails
  * @returns Array of updated tasks
  */
-async function rebalancePositions(tx: any, tasks: Task[]) {
+// @ts-expect-error prisma transaction client type
+async function rebalancePositions(tx, tasks: Task[]) {
   try {
     const POSITION_GAP = 1000
     

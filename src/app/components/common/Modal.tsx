@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import { Dialog } from '@headlessui/react';
 
 interface ModalProps {
@@ -9,15 +9,6 @@ interface ModalProps {
 }
 
 const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent | React.TouchEvent) => {
-      // Only close if the click/touch was directly on the backdrop
-      if (e.target === e.currentTarget) {
-        onClose();
-      }
-    },
-    [onClose]
-  );
 
   // Handle escape key
   useEffect(() => {
@@ -35,9 +26,9 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children }) => {
 
   return (
     <Dialog 
-      open={isOpen} 
-      onClose={(e: any) => {
-        e?.preventDefault?.()
+      open={isOpen}
+      onClose={(e) => {
+        void e;
         onClose()
       }}
       className="relative z-50"

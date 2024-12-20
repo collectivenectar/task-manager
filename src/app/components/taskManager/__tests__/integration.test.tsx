@@ -4,7 +4,6 @@ import TaskBoard from '../board/TaskBoard'
 import * as actions from '@/app/actions'
 import { TaskStatus, Task } from '@prisma/client'
 import { toast } from 'react-toastify'
-import { ValidationError } from '@/lib/errors'
 
 // Mock the server actions
 jest.mock('@/app/actions', () => ({

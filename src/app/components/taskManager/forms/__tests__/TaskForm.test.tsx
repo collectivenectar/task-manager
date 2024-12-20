@@ -2,7 +2,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import TaskForm from '../TaskForm'
 import { Category, Task, TaskStatus } from '@prisma/client'
-import { alerts } from '@/lib/utils/alerts'
 import { getTasksByCategory, deleteCategory } from '@/app/actions'
 
 // Mock dependencies
