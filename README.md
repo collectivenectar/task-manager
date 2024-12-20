@@ -25,8 +25,12 @@ A modern task management application built with Next.js, Prisma, and TypeScript.
 ## Getting Started
 1. Clone the repository
 2. Install dependencies: `npm install`
-3. Set up environment variables:   ```env
+3. Set up environment variables:   ```
+   in .env:
    DATABASE_URL=your_db_url
+   OPENAI_API_KEY=your openai api key
+
+   in .env.local:
    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_key
    CLERK_SECRET_KEY=your_clerk_secret   ```
 4. Run migrations: `npx prisma migrate dev`
