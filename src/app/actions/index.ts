@@ -24,7 +24,7 @@ import OpenAI from 'openai'
 import { SYSTEM_PROMPT, constructPrompt } from '@/lib/prompts/smart-task'
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY || ''
 })
 
 interface CreateTaskInput {
@@ -842,6 +842,10 @@ export interface SmartTaskResponse {
 }
 
 export async function getSmartTaskSuggestions(input: SmartTaskInput): Promise<SmartTaskResponse> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key not configured')
+  }
+  
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",

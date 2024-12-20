@@ -1,11 +1,15 @@
+import { redirect } from 'next/navigation'
 import TaskBoard from '@/app/components/taskManager/board/TaskBoard'
-import { getTasks } from '@/app/actions'
-import { getOrCreateDBUser } from './actions'
+import { getTasks, getOrCreateDBUser } from './actions'
 import { ErrorBoundaryWrapper } from '@/app/components/common/ErrorBoundaryWrapper'
+
+export const dynamic = 'force-dynamic'
 
 export default async function Home() {
   const user = await getOrCreateDBUser()
-  if (!user) return null
+  if (!user) {
+    redirect('/sign-in')
+  }
   
   const initialTasks = await getTasks(user.id)
   
