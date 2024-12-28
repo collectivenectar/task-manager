@@ -158,11 +158,13 @@ const validateCategoryId = async (userId: string, categoryId?: string) => {
  * @returns The ID of the default category
  */
 async function getDefaultCategoryId(userId: string): Promise<string> {
+  // First try to find existing default category
   const defaultCategory = await prisma.category.findFirst({
     where: { userId, isDefault: true },
   });
 
   if (!defaultCategory) {
+    // Create new default category if none exists
     const newDefaultCategory = await prisma.category.create({
       data: {
         name: "unassigned",
@@ -172,6 +174,15 @@ async function getDefaultCategoryId(userId: string): Promise<string> {
       },
     });
     return newDefaultCategory.id;
+  }
+
+  // If it's still named "Default", update it
+  if (defaultCategory.name === "Default") {
+    const updatedCategory = await prisma.category.update({
+      where: { id: defaultCategory.id },
+      data: { name: "unassigned" },
+    });
+    return updatedCategory.id;
   }
 
   return defaultCategory.id;
@@ -715,8 +726,24 @@ export async function createCategory(
  */
 export async function getCategories(userId: string) {
   try {
-    // Update any existing default categories
-    await updateDefaultCategoryName(userId);
+    // First ensure default category exists
+    const defaultCategory = await prisma.category.findFirst({
+      where: { userId, isDefault: true },
+    });
+
+    if (!defaultCategory) {
+      await prisma.category.create({
+        data: {
+          name: "unassigned",
+          isDefault: true,
+          userId,
+          position: 0,
+        },
+      });
+    } else {
+      // Update name if it's still "Default"
+      await updateDefaultCategoryName(userId);
+    }
 
     return await prisma.category.findMany({
       where: { userId },
